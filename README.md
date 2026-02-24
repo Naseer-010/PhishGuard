@@ -1,4 +1,4 @@
-# PhisGuard
+# PhisGaurd
 
 **SIH Problem Statement ID:** `SIH25159`  
 **Theme:** Cybersecurity  
