@@ -1,0 +1,179 @@
+.app {
+	min-height: 100vh;
+}
+
+.header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	max-width: 1040px;
+	margin: 0 auto;
+	padding: 1rem 1.25rem;
+}
+
+.brand {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+}
+
+.brand h1 {
+	margin: 0;
+	font-size: 1.1rem;
+}
+
+.brand-dot {
+	width: 0.75rem;
+	height: 0.75rem;
+	border-radius: 999px;
+	background: #3b82f6;
+}
+
+.container {
+	max-width: 1040px;
+	margin: 0 auto;
+	padding: 1.5rem 1.25rem 3rem;
+	display: grid;
+	gap: 1.5rem;
+}
+
+.hero {
+	border: 1px solid #e5e7eb;
+	background: #ffffff;
+	border-radius: 14px;
+	padding: 1.4rem;
+}
+
+.eyebrow {
+	margin: 0;
+	color: #2563eb;
+	font-size: 0.85rem;
+	font-weight: 600;
+}
+
+.hero h2 {
+	margin: 0.6rem 0;
+	line-height: 1.2;
+}
+
+.hero-text {
+	margin: 0;
+	color: #4b5563;
+}
+
+.scan-box {
+	margin-top: 1rem;
+	padding-top: 1rem;
+	border-top: 1px solid #eef0f4;
+}
+
+.scan-label {
+	display: block;
+	margin-bottom: 0.55rem;
+	font-weight: 600;
+	font-size: 0.9rem;
+}
+
+.scan-row {
+	display: flex;
+	gap: 0.6rem;
+	flex-wrap: wrap;
+}
+
+.scan-input {
+	flex: 1;
+	min-width: 220px;
+	border: 1px solid #d1d5db;
+	border-radius: 10px;
+	padding: 0.65rem 0.8rem;
+	font-size: 0.95rem;
+}
+
+.scan-input:focus {
+	outline: 2px solid #bfdbfe;
+	border-color: #3b82f6;
+}
+
+.button-primary,
+.button-secondary {
+	border: 0;
+	border-radius: 10px;
+	padding: 0.65rem 0.95rem;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.button-primary {
+	background: #2563eb;
+	color: #fff;
+}
+
+.button-secondary {
+	background: #f3f4f6;
+	color: #111827;
+}
+
+.stats-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 0.8rem;
+}
+
+.card {
+	border: 1px solid #e5e7eb;
+	background: #fff;
+	border-radius: 12px;
+	padding: 1rem;
+}
+
+.card h3 {
+	margin: 0;
+	font-size: 1.1rem;
+}
+
+.card p {
+	margin: 0.25rem 0 0;
+	color: #6b7280;
+	font-size: 0.92rem;
+}
+
+.features {
+	border: 1px solid #e5e7eb;
+	background: #fff;
+	border-radius: 14px;
+	padding: 1.2rem;
+}
+
+.features h2 {
+	margin-top: 0;
+	font-size: 1.2rem;
+}
+
+.features-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 0.8rem;
+}
+
+.feature-card {
+	border: 1px solid #eceff3;
+	border-radius: 12px;
+	padding: 1rem;
+}
+
+.feature-card h3 {
+	margin: 0;
+}
+
+.feature-card p {
+	margin: 0.4rem 0 0;
+	color: #6b7280;
+	font-size: 0.92rem;
+}
+
+@media (max-width: 860px) {
+	.stats-grid,
+	.features-grid {
+		grid-template-columns: 1fr;
+	}
+}
