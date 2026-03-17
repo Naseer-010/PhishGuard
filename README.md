@@ -69,45 +69,30 @@ PishGaurd/
 ## Setup
 
 ```bash
-git clone <repository-url>
-cd PishGaurd
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Usage (Target Flow)
+## Quick Model Usage
+```bash
+python3 models/quick_content_model/run_quick_model.py --url "https://example.com"
+```
 
-1. Train or load the phishing detection model.
-2. Start the inference service/API.
-3. Submit a URL or text payload for classification.
-4. Receive a prediction (`phishing` / `legitimate`) and risk score.
+## Deep Model Usage
+Train (one time):
+```bash
+python3 models/deep_risk_model/train_url_model.py
+```
 
-## Evaluation Metrics
+Analyze:
+```bash
+python3 models/deep_risk_model/run_deep_model.py --url "https://example.com"
+```
 
-- Accuracy
-- Precision
-- Recall
-- F1-Score
-- ROC-AUC
-- Inference latency (for real-time constraints)
+## Dataset
+- `data/phishing.csv` is used by `deep_risk_model` for URL model training.
 
-## Future Scope
-
-- Browser extension for live protection.
-- Email/SMS phishing detection module.
-- Threat intelligence feed integration.
-- Online learning from analyst feedback.
-- Multilingual phishing content detection.
-
-## Impact
-
-PishGuard aims to strengthen proactive cyber defense by combining ML intelligence with real-time intervention, helping individuals and organizations reduce successful phishing incidents.
-
-## Contributors
-
-Add team member names, roles, and contact details here.
-
-## License
-
-Specify project license (e.g., MIT) here.
+## Notes
+- No frontend code is included.
+- No VirusTotal API is used.
