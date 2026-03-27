@@ -12,6 +12,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+from models.features.brand_detection import detect_brand_impersonation
 from models.quick_content_model.keywords import (
     BRAND_KEYWORDS,
     CREDENTIAL_KEYWORDS,
@@ -38,6 +39,17 @@ SCRIPT_TOKENS = (
     "document.write",
 )
 
+PAYMENT_FIELD_TOKENS = (
+    "card",
+    "credit",
+    "debit",
+    "cvv",
+    "cvc",
+    "expiry",
+    "billing",
+    "payment",
+)
+
 
 @dataclass(slots=True)
 class PageAnalysis:
@@ -46,11 +58,14 @@ class PageAnalysis:
     final_url: str
     status_code: int | None
     redirect_count: int
+    title_text: str
     visible_text: str
     text_length: int
+    title_length: int
     visible_word_count: int
     forms_count: int
     password_fields_count: int
+    payment_fields_count: int
     hidden_inputs_count: int
     iframe_count: int
     total_links_count: int
@@ -59,7 +74,12 @@ class PageAnalysis:
     resource_count: int
     external_form_actions: int
     has_login_form: bool
+    has_payment_form: bool
     favicon_host_mismatch: bool
+    detected_brand: str | None
+    brand_match_count: int
+    brand_impersonation_detected: bool
+    brand_impersonation_score: int
     script_obfuscation_signals: int
     threat_keyword_hits: dict[str, int]
     safe_keyword_hits: dict[str, int]
@@ -135,8 +155,10 @@ def analyze_html(
     forms = soup.find_all("form")
     password_fields = soup.find_all("input", {"type": "password"})
     hidden_inputs = soup.find_all("input", {"type": "hidden"})
+    payment_fields = _payment_fields(soup)
     iframes = soup.find_all("iframe")
     anchors = soup.find_all("a", href=True)
+    title_text = soup.title.get_text(" ", strip=True).lower() if soup.title else ""
 
     final_host = (urlparse(resolved_final_url).hostname or "").lower()
 
@@ -175,6 +197,8 @@ def analyze_html(
         if any(token in form_body or token in form_html for token in ("login", "sign in", "password", "username")):
             has_login_form = True
 
+    has_payment_form = len(payment_fields) > 0
+
     favicon_host_mismatch = False
     favicon = soup.find("link", rel=_rel_contains_icon)
     if favicon and favicon.get("href"):
@@ -189,6 +213,12 @@ def analyze_html(
 
     visible_text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True).lower())[:20000]
     visible_word_count = len(visible_text.split()) if visible_text else 0
+    brand_detection = detect_brand_impersonation(
+        visible_text=visible_text,
+        title_text=title_text,
+        final_url=resolved_final_url,
+        has_sensitive_form=has_login_form or has_payment_form,
+    )
 
     return PageAnalysis(
         fetched=fetched,
@@ -196,11 +226,14 @@ def analyze_html(
         final_url=resolved_final_url,
         status_code=status_code,
         redirect_count=redirect_count,
+        title_text=title_text,
         visible_text=visible_text,
         text_length=len(visible_text),
+        title_length=len(title_text),
         visible_word_count=visible_word_count,
         forms_count=len(forms),
         password_fields_count=len(password_fields),
+        payment_fields_count=len(payment_fields),
         hidden_inputs_count=len(hidden_inputs),
         iframe_count=len(iframes),
         total_links_count=total_links_count,
@@ -209,7 +242,12 @@ def analyze_html(
         resource_count=resource_count,
         external_form_actions=external_form_actions,
         has_login_form=has_login_form,
+        has_payment_form=has_payment_form,
         favicon_host_mismatch=favicon_host_mismatch,
+        detected_brand=brand_detection.detected_brand,
+        brand_match_count=brand_detection.match_count,
+        brand_impersonation_detected=brand_detection.impersonation_detected,
+        brand_impersonation_score=brand_detection.score,
         script_obfuscation_signals=script_obfuscation_signals,
         threat_keyword_hits=count_keywords(visible_text, THREAT_KEYWORDS),
         safe_keyword_hits=count_keywords(visible_text, SAFE_KEYWORDS),
@@ -229,11 +267,14 @@ def empty_page_analysis(url: str, reason: str) -> PageAnalysis:
         final_url=url,
         status_code=None,
         redirect_count=0,
+        title_text="",
         visible_text="",
         text_length=0,
+        title_length=0,
         visible_word_count=0,
         forms_count=0,
         password_fields_count=0,
+        payment_fields_count=0,
         hidden_inputs_count=0,
         iframe_count=0,
         total_links_count=0,
@@ -242,7 +283,12 @@ def empty_page_analysis(url: str, reason: str) -> PageAnalysis:
         resource_count=0,
         external_form_actions=0,
         has_login_form=False,
+        has_payment_form=False,
         favicon_host_mismatch=False,
+        detected_brand=None,
+        brand_match_count=0,
+        brand_impersonation_detected=False,
+        brand_impersonation_score=0,
         script_obfuscation_signals=0,
         threat_keyword_hits={},
         safe_keyword_hits={},
@@ -290,3 +336,15 @@ def _rel_contains_icon(value: Any) -> bool:
     else:
         raw = str(value)
     return "icon" in raw.lower()
+
+
+def _payment_fields(soup: BeautifulSoup) -> list[Any]:
+    matched_fields: list[Any] = []
+    for input_tag in soup.find_all("input"):
+        joined = " ".join(
+            str(input_tag.get(attribute, "")).lower()
+            for attribute in ("name", "id", "placeholder", "autocomplete", "aria-label")
+        )
+        if any(token in joined for token in PAYMENT_FIELD_TOKENS):
+            matched_fields.append(input_tag)
+    return matched_fields
