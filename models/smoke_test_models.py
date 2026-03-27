@@ -31,6 +31,8 @@ def run() -> None:
     assert "model_version" in deep_report
     assert "text_model_score" in deep_report
     assert "criteria" in deep_report and "explanations" in deep_report["criteria"]
+    assert "human_explanation" in deep_report
+    assert "fusion_strategy" in deep_report
 
     print("Smoke tests passed")
     print(

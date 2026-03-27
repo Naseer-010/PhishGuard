@@ -17,6 +17,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from models.common.dataset_io import read_rows
+from models.common.fusion import DEFAULT_FUSION_META_FEATURES
 from models.common.model_utils import binary_metrics, fit_frame_columns, split_dataframe
 from models.common.paths import MANIFEST_DIR, PROCESSED_DIR
 from models.datasets.build_deep_dataset import build_dataset
@@ -107,20 +108,7 @@ REPUTATION_FEATURE_COLUMNS = [
     "reputation_confidence",
 ]
 
-META_FEATURE_COLUMNS = [
-    "url_score",
-    "page_score",
-    "infra_score",
-    "reputation_score",
-    "password_fields_count",
-    "payment_fields_count",
-    "external_form_actions",
-    "brand_impersonation_score",
-    "script_obfuscation_signals",
-    "tls_valid",
-    "domain_recent",
-    "reputation_source_count",
-]
+META_FEATURE_COLUMNS = list(DEFAULT_FUSION_META_FEATURES)
 
 
 def _fit_submodel(frame: pd.DataFrame, feature_columns: list[str], model) -> object:
@@ -197,7 +185,7 @@ def train(manifest_path: str | Path = DEFAULT_MANIFEST, dataset_path: str | Path
 
     meta_train = train_frame.copy()
     meta_train["url_score"] = url_model.predict_proba(fit_frame_columns(meta_train, URL_FEATURE_COLUMNS))[:, 1]
-    meta_train["page_score"] = page_model.predict_proba(fit_frame_columns(meta_train, PAGE_FEATURE_COLUMNS))[:, 1]
+    meta_train["content_score"] = page_model.predict_proba(fit_frame_columns(meta_train, PAGE_FEATURE_COLUMNS))[:, 1]
     meta_train["infra_score"] = infra_model.predict_proba(fit_frame_columns(meta_train, INFRA_FEATURE_COLUMNS))[:, 1]
     meta_train["reputation_score"] = reputation_model.predict_proba(
         fit_frame_columns(meta_train, REPUTATION_FEATURE_COLUMNS)
@@ -208,7 +196,7 @@ def train(manifest_path: str | Path = DEFAULT_MANIFEST, dataset_path: str | Path
 
     eval_frame = test_frame.copy()
     eval_frame["url_score"] = url_model.predict_proba(fit_frame_columns(eval_frame, URL_FEATURE_COLUMNS))[:, 1]
-    eval_frame["page_score"] = page_model.predict_proba(fit_frame_columns(eval_frame, PAGE_FEATURE_COLUMNS))[:, 1]
+    eval_frame["content_score"] = page_model.predict_proba(fit_frame_columns(eval_frame, PAGE_FEATURE_COLUMNS))[:, 1]
     eval_frame["infra_score"] = infra_model.predict_proba(fit_frame_columns(eval_frame, INFRA_FEATURE_COLUMNS))[:, 1]
     eval_frame["reputation_score"] = reputation_model.predict_proba(
         fit_frame_columns(eval_frame, REPUTATION_FEATURE_COLUMNS)

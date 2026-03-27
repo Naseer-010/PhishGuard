@@ -27,9 +27,12 @@ class TextExplanation:
 class TfidfTextModel:
     """Inference helper for a TF-IDF + logistic regression classifier."""
 
-    def __init__(self, model_path: str | Path):
+    def __init__(self, model_path: str | Path, *, max_characters: int = 12000):
         self.model_path = Path(model_path)
+        self.max_characters = max_characters
         self.pipeline = joblib.load(self.model_path) if self.model_path.exists() else None
+        self._score_cache: dict[str, int] = {}
+        self._explain_cache: dict[tuple[str, int], list[dict[str, float | str]]] = {}
 
     @property
     def available(self) -> bool:
@@ -38,17 +41,26 @@ class TfidfTextModel:
     def predict_score(self, text: str) -> int | None:
         if self.pipeline is None:
             return None
-        probability = float(self.pipeline.predict_proba([text])[0][1])
-        return int(round(probability * 100))
+        normalized = self._normalize_text(text)
+        if normalized in self._score_cache:
+            return self._score_cache[normalized]
+        probability = float(self.pipeline.predict_proba([normalized])[0][1])
+        score = int(round(probability * 100))
+        self._score_cache[normalized] = score
+        return score
 
     def explain_text(self, text: str, top_k: int = 5) -> list[dict[str, float | str]]:
         if self.pipeline is None:
             return []
+        normalized = self._normalize_text(text)
+        cache_key = (normalized, top_k)
+        if cache_key in self._explain_cache:
+            return self._explain_cache[cache_key]
 
         vectorizer = self.pipeline.named_steps["tfidf"]
         classifier = self.pipeline.named_steps["classifier"]
         feature_names = vectorizer.get_feature_names_out()
-        row = vectorizer.transform([text])
+        row = vectorizer.transform([normalized])
 
         if row.nnz == 0:
             return []
@@ -60,21 +72,35 @@ class TfidfTextModel:
                 contributions.append(TextExplanation(token=str(feature_names[index]), contribution=contribution))
 
         contributions.sort(key=lambda item: item.contribution, reverse=True)
-        return [
+        explanations = [
             {"token": item.token, "contribution": round(item.contribution, 6)}
             for item in contributions[:top_k]
         ]
+        self._explain_cache[cache_key] = explanations
+        return explanations
+
+    def _normalize_text(self, text: str) -> str:
+        return " ".join(text.split())[: self.max_characters]
 
 
 class DistilBertTextModel:
     """Optional DistilBERT classifier wrapper."""
 
-    def __init__(self, model_dir: str | Path):
+    def __init__(
+        self,
+        model_dir: str | Path,
+        *,
+        max_length: int = 256,
+        max_characters: int = 6000,
+    ):
         self.model_dir = Path(model_dir)
+        self.max_length = max_length
+        self.max_characters = max_characters
         self._loaded = False
         self._tokenizer = None
         self._model = None
         self._torch = None
+        self._score_cache: dict[str, int] = {}
 
     @property
     def available(self) -> bool:
@@ -85,18 +111,23 @@ class DistilBertTextModel:
     def predict_score(self, text: str) -> int | None:
         if not self._load():
             return None
+        normalized = self._normalize_text(text)
+        if normalized in self._score_cache:
+            return self._score_cache[normalized]
 
         encoded = self._tokenizer(
-            text,
+            normalized,
             truncation=True,
-            padding=True,
-            max_length=256,
+            padding=False,
+            max_length=self.max_length,
             return_tensors="pt",
         )
         with self._torch.no_grad():
             logits = self._model(**encoded).logits
             probabilities = self._torch.softmax(logits, dim=-1)[0]
-        return int(round(float(probabilities[1].item()) * 100))
+        score = int(round(float(probabilities[1].item()) * 100))
+        self._score_cache[normalized] = score
+        return score
 
     def _load(self) -> bool:
         if self._loaded:
@@ -120,6 +151,9 @@ class DistilBertTextModel:
             self._model = None
             self._torch = None
             return False
+
+    def _normalize_text(self, text: str) -> str:
+        return " ".join(text.split())[: self.max_characters]
 
 
 def train_tfidf_text_classifier(

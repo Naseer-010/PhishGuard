@@ -9,14 +9,14 @@ from urllib.parse import urlparse
 
 import joblib
 import numpy as np
-import pandas as pd
 
+from models.common.fusion import DEFAULT_FUSION_META_FEATURES, ScoreFusionEngine
+from models.common.human_explanations import build_deep_human_explanation
 from models.common.explainability import explain_with_shap
 from models.common.text_models import DistilBertTextModel, TfidfTextModel
 from models.deep_risk_model.train_deep_model import (
     INFRA_FEATURE_COLUMNS,
     INFRA_MODEL_PATH,
-    META_FEATURE_COLUMNS,
     META_MODEL_PATH,
     PAGE_FEATURE_COLUMNS,
     PAGE_MODEL_PATH,
@@ -50,6 +50,9 @@ class DeepRiskReport:
     bert_model_score: int | None
     infrastructure_risk_score: int
     reputation_risk_score: int
+    subscores: dict[str, int]
+    human_explanation: dict[str, Any]
+    fusion_strategy: str
     criteria: dict[str, Any]
     threat_indicators: list[dict[str, str]]
     model_version: str
@@ -68,6 +71,10 @@ class DeepRiskModel:
         self.meta_model = joblib.load(META_MODEL_PATH) if META_MODEL_PATH.exists() else None
         self.text_model = TfidfTextModel(TEXT_MODEL_PATH)
         self.distilbert_model = DistilBertTextModel(DISTILBERT_MODEL_DIR)
+        self.fusion_engine = ScoreFusionEngine(
+            meta_model=self.meta_model,
+            meta_feature_columns=list(DEFAULT_FUSION_META_FEATURES),
+        )
 
     def analyze_url(self, url: str) -> dict[str, Any]:
         normalized = self._normalize_url(url)
@@ -109,13 +116,15 @@ class DeepRiskModel:
             fallback=self._reputation_heuristic_score(deep_features),
         )
 
-        risk_score, model_version = self._final_score(
-            deep_features,
-            url_model_score,
-            content_risk_score,
-            infrastructure_risk_score,
-            reputation_risk_score,
+        fusion_result = self._final_score(
+            deep_features=deep_features,
+            url_model_score=url_model_score,
+            content_risk_score=content_risk_score,
+            infrastructure_risk_score=infrastructure_risk_score,
+            reputation_risk_score=reputation_risk_score,
         )
+        risk_score = fusion_result.score
+        model_version = self._model_version(fusion_result.strategy, text_model_score, bert_model_score)
 
         verdict = self._verdict(risk_score)
         is_phishing = risk_score >= 50
@@ -126,6 +135,17 @@ class DeepRiskModel:
             page,
             raw_page_model_score=raw_page_model_score,
             infrastructure_risk_score=infrastructure_risk_score,
+        )
+        human_explanation = build_deep_human_explanation(
+            score=risk_score,
+            url_model_score=url_model_score,
+            content_score=content_risk_score,
+            infrastructure_score=infrastructure_risk_score,
+            reputation_score=reputation_risk_score,
+            page=page.asdict(),
+            infrastructure=infrastructure,
+            reputation=reputation,
+            text_terms=explanations.get("text_terms", []),
         )
         report = DeepRiskReport(
             url=normalized,
@@ -140,6 +160,14 @@ class DeepRiskModel:
             bert_model_score=bert_model_score,
             infrastructure_risk_score=infrastructure_risk_score,
             reputation_risk_score=reputation_risk_score,
+            subscores={
+                "url": url_model_score,
+                "content": content_risk_score,
+                "infrastructure": infrastructure_risk_score,
+                "reputation": reputation_risk_score,
+            },
+            human_explanation=human_explanation,
+            fusion_strategy=fusion_result.strategy,
             criteria={
                 "feature_details": feature_details,
                 "quick_features": deep_features,
@@ -147,6 +175,7 @@ class DeepRiskModel:
                 "infrastructure_checks": infrastructure,
                 "reputation": reputation,
                 "explanations": explanations,
+                "fusion": fusion_result.asdict(),
             },
             threat_indicators=indicators,
             model_version=model_version,
@@ -197,8 +226,7 @@ class DeepRiskModel:
     ) -> int:
         if model is None:
             return fallback
-        frame = pd.DataFrame([[features.get(column, 0.0) for column in columns]], columns=columns)
-        probability = float(model.predict_proba(frame)[0][1])
+        probability = float(model.predict_proba([[features.get(column, 0.0) for column in columns]])[0][1])
         return int(round(probability * 100))
 
     def _feature_heuristic_score(self, feature_details: list[dict[str, Any]]) -> int:
@@ -295,35 +323,25 @@ class DeepRiskModel:
 
     def _final_score(
         self,
+        *,
         deep_features: dict[str, float | int],
         url_model_score: int,
         content_risk_score: int,
         infrastructure_risk_score: int,
         reputation_risk_score: int,
-    ) -> tuple[int, str]:
-        if self.meta_model is not None:
-            meta_features = deep_features.copy()
-            meta_features.update(
-                {
-                    "url_score": url_model_score / 100.0,
-                    "page_score": content_risk_score / 100.0,
-                    "infra_score": infrastructure_risk_score / 100.0,
-                    "reputation_score": reputation_risk_score / 100.0,
-                }
-            )
-            frame = pd.DataFrame([[meta_features.get(column, 0.0) for column in META_FEATURE_COLUMNS]], columns=META_FEATURE_COLUMNS)
-            probability = float(self.meta_model.predict_proba(frame)[0][1])
-            return int(round(probability * 100)), "deep_meta_v1"
-
-        risk = self._weighted_score(
-            [
-                (url_model_score, 0.35),
-                (content_risk_score, 0.25),
-                (infrastructure_risk_score, 0.15),
-                (reputation_risk_score, 0.25),
-            ]
+    ):
+        return self.fusion_engine.fuse(
+            url_score=url_model_score,
+            content_score=content_risk_score,
+            infra_score=infrastructure_risk_score,
+            reputation_score=reputation_risk_score,
+            extra_features={
+                "brand_impersonation_score": float(deep_features.get("brand_impersonation_score", 0)) / 100.0,
+                "domain_recent": float(deep_features.get("domain_recent", 0)),
+                "has_login_form": float(deep_features.get("has_login_form", 0)),
+                "has_payment_form": float(deep_features.get("has_payment_form", 0)),
+            },
         )
-        return risk, "deep_weighted_fallback_v1"
 
     def _explanations(
         self,
@@ -458,3 +476,16 @@ class DeepRiskModel:
         if score <= 59:
             return "Suspicious"
         return "Dangerous"
+
+    def _model_version(
+        self,
+        fusion_strategy: str,
+        text_model_score: int | None,
+        bert_model_score: int | None,
+    ) -> str:
+        tokens = [f"deep_{fusion_strategy}_v1"]
+        if text_model_score is not None:
+            tokens.append("tfidf_text")
+        if bert_model_score is not None:
+            tokens.append("distilbert")
+        return "+".join(tokens)
