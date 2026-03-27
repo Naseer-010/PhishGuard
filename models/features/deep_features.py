@@ -18,10 +18,14 @@ from models.reputation.providers import ReputationRegistry
 
 DEEP_FEATURE_COLUMNS = QUICK_FEATURE_COLUMNS + [
     "dns_resolves",
+    "resolved_ip_count",
     "host_is_ip",
     "punycode_domain",
     "suspicious_tld_infra",
     "non_standard_port",
+    "whois_available",
+    "domain_age_days",
+    "domain_recent",
     "tls_checked",
     "tls_valid",
     "tls_days_to_expiry",
@@ -115,14 +119,23 @@ def collect_infrastructure_snapshot(url: str, timeout: int = 12) -> dict[str, An
     snapshot: dict[str, Any] = {
         "https": scheme == "https",
         "dns_resolves": False,
+        "resolved_ips": [],
         "host_is_ip": False,
         "punycode_domain": "xn--" in host,
         "suspicious_tld": False,
         "non_standard_port": False,
+        "domain_registration": {
+            "checked": False,
+            "available": False,
+            "age_days": None,
+            "registrar": None,
+            "error": None,
+        },
         "ssl_certificate": {
             "checked": False,
             "valid": False,
             "days_to_expiry": None,
+            "issuer_common_name": None,
             "error": None,
         },
     }
@@ -155,10 +168,14 @@ def collect_infrastructure_snapshot(url: str, timeout: int = 12) -> dict[str, An
 
     if host:
         try:
-            socket.gethostbyname(host)
+            _, _, ip_addresses = socket.gethostbyname_ex(host)
             snapshot["dns_resolves"] = True
+            snapshot["resolved_ips"] = sorted(set(ip_addresses))
         except Exception:
             snapshot["dns_resolves"] = False
+
+    if host and not snapshot["host_is_ip"]:
+        snapshot["domain_registration"] = domain_registration_snapshot(host)
 
     if scheme == "https" and host:
         snapshot["ssl_certificate"] = ssl_certificate_status(host, port or 443, timeout)
@@ -171,6 +188,7 @@ def ssl_certificate_status(host: str, port: int, timeout: int) -> dict[str, Any]
         "checked": True,
         "valid": False,
         "days_to_expiry": None,
+        "issuer_common_name": None,
         "error": None,
     }
 
@@ -181,6 +199,15 @@ def ssl_certificate_status(host: str, port: int, timeout: int) -> dict[str, Any]
                 cert = secure_sock.getpeercert()
 
         not_after = cert.get("notAfter")
+        issuer = cert.get("issuer")
+        if issuer:
+            issuer_parts = []
+            for item in issuer:
+                for key, value in item:
+                    if key == "commonName":
+                        issuer_parts.append(value)
+            if issuer_parts:
+                result["issuer_common_name"] = issuer_parts[0]
         if not_after:
             expiry = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
             now = datetime.now(timezone.utc)
@@ -196,13 +223,19 @@ def ssl_certificate_status(host: str, port: int, timeout: int) -> dict[str, Any]
 
 def deep_feature_suffix(infrastructure: dict[str, Any], reputation: dict[str, Any]) -> dict[str, float | int]:
     ssl_certificate = infrastructure.get("ssl_certificate", {})
+    registration = infrastructure.get("domain_registration", {})
     days_to_expiry = ssl_certificate.get("days_to_expiry")
+    age_days = registration.get("age_days")
     return {
         "dns_resolves": int(bool(infrastructure.get("dns_resolves"))),
+        "resolved_ip_count": len(infrastructure.get("resolved_ips", [])),
         "host_is_ip": int(bool(infrastructure.get("host_is_ip"))),
         "punycode_domain": int(bool(infrastructure.get("punycode_domain"))),
         "suspicious_tld_infra": int(bool(infrastructure.get("suspicious_tld"))),
         "non_standard_port": int(bool(infrastructure.get("non_standard_port"))),
+        "whois_available": int(bool(registration.get("available"))),
+        "domain_age_days": int(age_days) if age_days is not None else -1,
+        "domain_recent": int(age_days is not None and age_days < 30),
         "tls_checked": int(bool(ssl_certificate.get("checked"))),
         "tls_valid": int(bool(ssl_certificate.get("valid"))),
         "tls_days_to_expiry": int(days_to_expiry) if days_to_expiry is not None else -1,
@@ -217,3 +250,41 @@ def deep_feature_suffix(infrastructure: dict[str, Any], reputation: dict[str, An
 def registrable_host(url: str) -> str:
     parsed = urlparse(url)
     return (parsed.hostname or "").lower()
+
+
+def domain_registration_snapshot(host: str) -> dict[str, Any]:
+    result = {
+        "checked": False,
+        "available": False,
+        "age_days": None,
+        "registrar": None,
+        "error": None,
+    }
+
+    try:
+        import whois
+    except ImportError:
+        result["error"] = "python-whois_not_installed"
+        return result
+
+    try:
+        record = whois.whois(host)
+        creation_date = record.creation_date
+        if isinstance(creation_date, list):
+            creation_values = [item for item in creation_date if item]
+            creation_date = min(creation_values) if creation_values else None
+
+        result["checked"] = True
+        result["registrar"] = str(getattr(record, "registrar", "") or "") or None
+        if creation_date:
+            creation_dt = creation_date
+            if creation_dt.tzinfo is None:
+                creation_dt = creation_dt.replace(tzinfo=timezone.utc)
+            result["available"] = True
+            result["age_days"] = max(0, int((datetime.now(timezone.utc) - creation_dt).total_seconds() // 86400))
+        else:
+            result["error"] = "creation_date_missing"
+    except Exception as exc:
+        result["error"] = str(exc)
+
+    return result
