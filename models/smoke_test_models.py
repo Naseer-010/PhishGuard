@@ -18,11 +18,15 @@ def run() -> None:
     quick_report = quick_model.analyze_url("example.invalid/login")
     assert "threat_percentage" in quick_report
     assert 0 <= quick_report["threat_percentage"] <= 100
+    assert "model_version" in quick_report
+    assert "risk_band" in quick_report
 
     deep_model = DeepRiskModel(timeout=4)
     deep_report = deep_model.analyze_url("example.invalid/login")
     assert "risk_score" in deep_report
     assert 0 <= deep_report["risk_score"] <= 100
+    assert "reputation_risk_score" in deep_report
+    assert "model_version" in deep_report
 
     print("Smoke tests passed")
     print(

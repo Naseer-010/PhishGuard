@@ -49,3 +49,53 @@ SAFE_KEYWORDS = {
     "careers": 1,
     "blog": 1,
 }
+
+URGENCY_KEYWORDS = {
+    "urgent": 2,
+    "urgent action": 3,
+    "immediately": 2,
+    "act now": 3,
+    "expires today": 3,
+    "limited time": 2,
+    "suspended": 2,
+    "warning": 2,
+}
+
+CREDENTIAL_KEYWORDS = {
+    "login": 2,
+    "sign in": 2,
+    "signin": 2,
+    "username": 2,
+    "password": 3,
+    "passcode": 2,
+    "otp": 2,
+    "one time password": 3,
+    "security code": 2,
+}
+
+FINANCIAL_KEYWORDS = {
+    "bank": 2,
+    "bank account": 3,
+    "credit card": 3,
+    "debit card": 3,
+    "routing number": 4,
+    "billing": 2,
+    "payment": 2,
+    "invoice": 2,
+    "wire transfer": 4,
+}
+
+BRAND_KEYWORDS = {
+    "paypal": 3,
+    "microsoft": 3,
+    "office365": 3,
+    "google": 3,
+    "gmail": 3,
+    "apple": 3,
+    "amazon": 3,
+    "facebook": 3,
+    "instagram": 3,
+    "linkedin": 3,
+    "netflix": 3,
+    "bank": 2,
+}

@@ -1,5 +1,11 @@
 """Quick content threat model package."""
 
-from .model import QuickContentThreatModel
-
 __all__ = ["QuickContentThreatModel"]
+
+
+def __getattr__(name: str):
+    if name == "QuickContentThreatModel":
+        from .model import QuickContentThreatModel
+
+        return QuickContentThreatModel
+    raise AttributeError(name)

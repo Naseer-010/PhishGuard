@@ -6,6 +6,11 @@
 
 PishGuard is an AI/ML-driven cybersecurity system designed to detect and prevent phishing attempts in real time. The platform analyzes URLs, webpage signals, content patterns, and behavioral indicators to classify threats and protect users before they interact with malicious resources.
 
+The repo now contains two model tracks:
+
+- `models/quick_content_model`: a lightweight, extension-grade phishing scorer that can use a trained on-device friendly model and falls back to heuristics when no artifact exists.
+- `models/deep_risk_model`: a deeper ensemble that combines URL, content, infrastructure, and local threat-intel feed signals.
+
 ## Problem Overview
 
 Phishing remains one of the most common cyberattack vectors, targeting users through fake links, spoofed websites, and deceptive content. Traditional blacklist-based systems often miss newly generated (zero-day) phishing domains.
@@ -79,20 +84,43 @@ pip install -r requirements.txt
 python3 models/quick_content_model/run_quick_model.py --url "https://example.com"
 ```
 
+Train the quick model from labeled HTML snapshots:
+```bash
+python3 models/quick_content_model/train_quick_model.py --manifest data/manifests/quick_samples.csv
+```
+
+Build the quick feature dataset only:
+```bash
+python3 models/datasets/build_quick_dataset.py --manifest data/manifests/quick_samples.csv
+```
+
 ## Deep Model Usage
-Train (one time):
+Train the legacy URL model:
 ```bash
 python3 models/deep_risk_model/train_url_model.py
 ```
 
-Analyze:
+Train the deep ensemble from labeled HTML snapshots:
+```bash
+python3 models/deep_risk_model/train_deep_model.py --manifest data/manifests/deep_samples.csv
+```
+
+Build the deep feature dataset only:
+```bash
+python3 models/datasets/build_deep_dataset.py --manifest data/manifests/deep_samples.csv
+```
+
+Analyze a URL:
 ```bash
 python3 models/deep_risk_model/run_deep_model.py --url "https://example.com"
 ```
 
 ## Dataset
-- `data/phishing.csv` is used by `deep_risk_model` for URL model training.
+- `data/phishing.csv` is used by the legacy URL-only Random Forest model.
+- `data/manifests/quick_samples.template.csv` and `data/manifests/deep_samples.template.csv` document the labeled manifest formats expected by the new training pipelines.
+- `data/README.md` documents the required fields for HTML snapshots, optional DNS/TLS/reputation snapshots, and local threat-intel feed files under `data/raw/feeds/`.
 
 ## Notes
 - No frontend code is included.
 - No VirusTotal API is used.
+- The deep model can enrich analysis from local feed snapshots such as `openphish.txt`, `phishtank.csv`, or similar files placed in `data/raw/feeds/`.
