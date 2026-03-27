@@ -11,6 +11,8 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from models.common.explainability import explain_with_shap
+from models.common.text_models import DistilBertTextModel, TfidfTextModel
 from models.deep_risk_model.train_deep_model import (
     INFRA_FEATURE_COLUMNS,
     INFRA_MODEL_PATH,
@@ -24,6 +26,8 @@ from models.deep_risk_model.train_deep_model import (
 )
 from models.deep_risk_model.train_url_model import MODEL_PATH as LEGACY_URL_MODEL_PATH
 from models.deep_risk_model.train_url_model import train as train_legacy_url_model
+from models.deep_risk_model.train_distilbert_model import MODEL_DIR as DISTILBERT_MODEL_DIR
+from models.deep_risk_model.train_text_tfidf_model import TEXT_MODEL_PATH
 from models.deep_risk_model.url_feature_extractor import extract_features, get_feature_details
 from models.features.deep_features import extract_live_deep_features
 from models.reputation.providers import ReputationRegistry
@@ -42,6 +46,8 @@ class DeepRiskReport:
     url_model_score: int
     url_heuristic_score: int
     content_risk_score: int
+    text_model_score: int | None
+    bert_model_score: int | None
     infrastructure_risk_score: int
     reputation_risk_score: int
     criteria: dict[str, Any]
@@ -60,6 +66,8 @@ class DeepRiskModel:
         self.infrastructure_model = joblib.load(INFRA_MODEL_PATH) if INFRA_MODEL_PATH.exists() else None
         self.reputation_model = joblib.load(REPUTATION_MODEL_PATH) if REPUTATION_MODEL_PATH.exists() else None
         self.meta_model = joblib.load(META_MODEL_PATH) if META_MODEL_PATH.exists() else None
+        self.text_model = TfidfTextModel(TEXT_MODEL_PATH)
+        self.distilbert_model = DistilBertTextModel(DISTILBERT_MODEL_DIR)
 
     def analyze_url(self, url: str) -> dict[str, Any]:
         normalized = self._normalize_url(url)
@@ -73,11 +81,20 @@ class DeepRiskModel:
 
         url_model_score = self._predict_url_score(normalized, deep_features)
         url_heuristic_score = self._feature_heuristic_score(feature_details)
-        content_risk_score = self._predict_group_score(
+        raw_page_model_score = self._predict_group_score(
             self.page_model,
             deep_features,
             PAGE_FEATURE_COLUMNS,
             fallback=self._page_heuristic_score(deep_features, page.fetched),
+        )
+        text_model_score = self.text_model.predict_score(page.visible_text) if page.visible_text else None
+        bert_model_score = self.distilbert_model.predict_score(page.visible_text) if page.visible_text else None
+        content_risk_score = self._content_score(
+            raw_page_model_score=raw_page_model_score,
+            text_model_score=text_model_score,
+            bert_model_score=bert_model_score,
+            brand_impersonation_score=page.brand_impersonation_score,
+            payment_fields_count=page.payment_fields_count,
         )
         infrastructure_risk_score = self._predict_group_score(
             self.infrastructure_model,
@@ -104,6 +121,12 @@ class DeepRiskModel:
         is_phishing = risk_score >= 50
 
         indicators = self._build_indicators(feature_details, page.asdict(), infrastructure, reputation)
+        explanations = self._explanations(
+            deep_features,
+            page,
+            raw_page_model_score=raw_page_model_score,
+            infrastructure_risk_score=infrastructure_risk_score,
+        )
         report = DeepRiskReport(
             url=normalized,
             final_url=page.final_url,
@@ -113,6 +136,8 @@ class DeepRiskModel:
             url_model_score=url_model_score,
             url_heuristic_score=url_heuristic_score,
             content_risk_score=content_risk_score,
+            text_model_score=text_model_score,
+            bert_model_score=bert_model_score,
             infrastructure_risk_score=infrastructure_risk_score,
             reputation_risk_score=reputation_risk_score,
             criteria={
@@ -121,6 +146,7 @@ class DeepRiskModel:
                 "scrape_analysis": page.asdict(),
                 "infrastructure_checks": infrastructure,
                 "reputation": reputation,
+                "explanations": explanations,
             },
             threat_indicators=indicators,
             model_version=model_version,
@@ -201,9 +227,13 @@ class DeepRiskModel:
         score = 0.0
         score += min(float(features["threat_keyword_weight"]) * 2.2, 34)
         score += min(float(features["password_fields_count"]) * 10, 24)
+        score += min(float(features["payment_fields_count"]) * 10, 24)
         score += min(float(features["external_form_actions"]) * 16, 28)
         score += min(float(features["script_obfuscation_signals"]) * 5, 20)
+        score += min(float(features["brand_impersonation_score"]), 24)
         if float(features["has_login_form"]) > 0:
+            score += 8
+        if float(features["has_payment_form"]) > 0:
             score += 8
         if not fetched:
             score += 6
@@ -215,6 +245,10 @@ class DeepRiskModel:
         score = 0.0
         if float(features["is_https"]) == 0:
             score += 12
+        if float(features["whois_available"]) == 0:
+            score += 4
+        if float(features["domain_recent"]) > 0:
+            score += 18
         if float(features["host_is_ip"]) > 0 or float(features["uses_ip_host"]) > 0:
             score += 24
         if float(features["has_punycode"]) > 0 or float(features["punycode_domain"]) > 0:
@@ -223,6 +257,8 @@ class DeepRiskModel:
             score += 15
         if float(features["dns_resolves"]) == 0:
             score += 16
+        if float(features["resolved_ip_count"]) == 0:
+            score += 6
         if float(features["non_standard_port"]) > 0:
             score += 8
         if float(features["tls_checked"]) > 0 and float(features["tls_valid"]) == 0:
@@ -238,6 +274,24 @@ class DeepRiskModel:
         score += float(features["reputation_source_count"]) * 10
         score = max(score, float(features["reputation_confidence"]))
         return int(round(max(0, min(100, score))))
+
+    def _content_score(
+        self,
+        *,
+        raw_page_model_score: int,
+        text_model_score: int | None,
+        bert_model_score: int | None,
+        brand_impersonation_score: int,
+        payment_fields_count: int,
+    ) -> int:
+        parts: list[tuple[int, float]] = [(raw_page_model_score, 0.45), (brand_impersonation_score, 0.10)]
+        if text_model_score is not None:
+            parts.append((text_model_score, 0.30))
+        if bert_model_score is not None:
+            parts.append((bert_model_score, 0.15))
+        if payment_fields_count > 0:
+            parts.append((min(100, payment_fields_count * 18), 0.10))
+        return self._weighted_score(parts)
 
     def _final_score(
         self,
@@ -271,6 +325,35 @@ class DeepRiskModel:
         )
         return risk, "deep_weighted_fallback_v1"
 
+    def _explanations(
+        self,
+        deep_features: dict[str, float | int],
+        page: Any,
+        *,
+        raw_page_model_score: int,
+        infrastructure_risk_score: int,
+    ) -> dict[str, Any]:
+        explanations: dict[str, Any] = {
+            "text_terms": self.text_model.explain_text(page.visible_text, top_k=5) if page.visible_text else [],
+            "page_model_shap": [],
+            "infra_model_shap": [],
+        }
+
+        if self.page_model is not None:
+            page_frame = pd.DataFrame([[deep_features.get(column, 0.0) for column in PAGE_FEATURE_COLUMNS]], columns=PAGE_FEATURE_COLUMNS)
+            explanations["page_model_shap"] = explain_with_shap(self.page_model, page_frame, top_k=5)
+
+        if self.infrastructure_model is not None:
+            infra_frame = pd.DataFrame([[deep_features.get(column, 0.0) for column in INFRA_FEATURE_COLUMNS]], columns=INFRA_FEATURE_COLUMNS)
+            explanations["infra_model_shap"] = explain_with_shap(self.infrastructure_model, infra_frame, top_k=5)
+
+        explanations["summary"] = [
+            {"feature": "page_model_score", "impact": raw_page_model_score},
+            {"feature": "infrastructure_score", "impact": infrastructure_risk_score},
+            {"feature": "brand_impersonation_score", "impact": page.brand_impersonation_score},
+        ]
+        return explanations
+
     def _build_indicators(
         self,
         feature_details: list[dict[str, Any]],
@@ -292,6 +375,8 @@ class DeepRiskModel:
 
         if scraped.get("has_login_form"):
             indicators.append({"type": "content", "severity": "high", "indicator": "Login form detected"})
+        if scraped.get("has_payment_form"):
+            indicators.append({"type": "content", "severity": "high", "indicator": "Payment or card fields detected"})
         if scraped.get("external_form_actions", 0) > 0:
             indicators.append(
                 {
@@ -306,6 +391,14 @@ class DeepRiskModel:
                     "type": "content",
                     "severity": "medium",
                     "indicator": "Obfuscated JavaScript patterns detected",
+                }
+            )
+        if scraped.get("brand_impersonation_detected") and scraped.get("detected_brand"):
+            indicators.append(
+                {
+                    "type": "content",
+                    "severity": "high",
+                    "indicator": f"Brand impersonation suspected for {scraped['detected_brand']}",
                 }
             )
         if infrastructure.get("host_is_ip"):
@@ -330,6 +423,15 @@ class DeepRiskModel:
                     "type": "infrastructure",
                     "severity": "medium",
                     "indicator": "URL is not HTTPS",
+                }
+            )
+        registration = infrastructure.get("domain_registration", {})
+        if registration.get("age_days") is not None and registration["age_days"] < 30:
+            indicators.append(
+                {
+                    "type": "infrastructure",
+                    "severity": "high",
+                    "indicator": f"Domain is very new ({registration['age_days']} days old)",
                 }
             )
         if reputation.get("source_count", 0) > 0:

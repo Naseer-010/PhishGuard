@@ -63,6 +63,19 @@ python3 models/datasets/build_deep_dataset.py
 
 ```bash
 python3 models/quick_content_model/train_quick_model.py
+python3 models/quick_content_model/train_text_tfidf_model.py --dataset data/processed/quick_text.csv
+python3 models/quick_content_model/train_distilbert_model.py --dataset data/processed/quick_text.csv
 python3 models/deep_risk_model/train_url_model.py
 python3 models/deep_risk_model/train_deep_model.py
+python3 models/deep_risk_model/train_text_tfidf_model.py --dataset data/processed/deep_text.csv
+python3 models/deep_risk_model/train_distilbert_model.py --dataset data/processed/deep_text.csv
 ```
+
+Text-model datasets should contain at least:
+
+- `text`
+- `label`
+
+Recommended optional column:
+
+- `domain_group`

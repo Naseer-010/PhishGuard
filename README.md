@@ -79,6 +79,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+For optional advanced ML features such as DistilBERT, WHOIS-based domain-age checks, and SHAP explanations:
+```bash
+pip install -r requirements-ml.txt
+```
+
 ## Quick Model Usage
 ```bash
 python3 models/quick_content_model/run_quick_model.py --url "https://example.com"
@@ -87,6 +92,12 @@ python3 models/quick_content_model/run_quick_model.py --url "https://example.com
 Train the quick model from labeled HTML snapshots:
 ```bash
 python3 models/quick_content_model/train_quick_model.py --manifest data/manifests/quick_samples.csv
+```
+
+Train the quick text-understanding models:
+```bash
+python3 models/quick_content_model/train_text_tfidf_model.py --dataset data/processed/quick_text.csv
+python3 models/quick_content_model/train_distilbert_model.py --dataset data/processed/quick_text.csv
 ```
 
 Build the quick feature dataset only:
@@ -103,6 +114,12 @@ python3 models/deep_risk_model/train_url_model.py
 Train the deep ensemble from labeled HTML snapshots:
 ```bash
 python3 models/deep_risk_model/train_deep_model.py --manifest data/manifests/deep_samples.csv
+```
+
+Train the deep content-understanding models:
+```bash
+python3 models/deep_risk_model/train_text_tfidf_model.py --dataset data/processed/deep_text.csv
+python3 models/deep_risk_model/train_distilbert_model.py --dataset data/processed/deep_text.csv
 ```
 
 Build the deep feature dataset only:
@@ -124,3 +141,5 @@ python3 models/deep_risk_model/run_deep_model.py --url "https://example.com"
 - No frontend code is included.
 - No VirusTotal API is used.
 - The deep model can enrich analysis from local feed snapshots such as `openphish.txt`, `phishtank.csv`, or similar files placed in `data/raw/feeds/`.
+- If TF-IDF or DistilBERT text-model artifacts exist, the quick and deep analyzers will automatically blend them into the final risk score and expose text-based explanations.
+- If `python-whois` is installed, the deep model will also use live domain-age signals; otherwise it degrades gracefully.
