@@ -23,9 +23,12 @@ dist-ssr
 *.sln
 *.sw?
 
+
 # Python caches
 __pycache__/
 *.py[cod]
 
-README.md
-/data/README.md
+venv
+data/raw/html
+models/deep_risk_model/artifacts
+models/quick_content_model/artifacts

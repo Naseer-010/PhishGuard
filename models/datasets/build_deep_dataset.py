@@ -25,53 +25,84 @@ from models.reputation.providers import ReputationRegistry
 
 
 def build_dataset(manifest_path: str | Path, output_path: str | Path) -> list[dict[str, object]]:
-    samples = load_deep_manifest(manifest_path)
+    manifest_file = Path(manifest_path)
+    out_file = Path(output_path)
+
+    # FIX 1: Provide clear error if manifest is missing
+    if not manifest_file.exists():
+        raise FileNotFoundError(f"Manifest not found at: {manifest_file}")
+
+    # FIX 2: Create processed directory automatically
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+
+    samples = load_deep_manifest(manifest_file)
     registry = ReputationRegistry()
     rows: list[dict[str, object]] = []
+    
+    # Define absolute path to HTML directory
+    HTML_DIR = ROOT / "data" / "raw" / "html"
+
     for sample in samples:
         if not sample.html_path:
             continue
 
-        html = load_html(sample.html_path)
-        page = analyze_html(
-            url=sample.url,
-            html=html,
-            final_url=sample.final_url or sample.url,
-            status_code=sample.status_code,
-            redirect_count=sample.redirect_count,
-            fetched=True,
-        )
-        quick_features = build_quick_feature_dict(sample.final_url or sample.url, page)
+        # FIX 3: Force absolute path resolution
+        filename = Path(sample.html_path).name
+        html_file_path = HTML_DIR / filename
 
-        if sample.network_path:
-            row = build_deep_feature_row_from_snapshot(
-                sample_id=sample.sample_id,
+        if not html_file_path.exists():
+            print(f"Warning: HTML file missing at {html_file_path}, skipping...")
+            continue
+
+        try:
+            # Load HTML using the corrected absolute path
+            html = load_html(str(html_file_path))
+            page = analyze_html(
                 url=sample.url,
-                label=sample.label,
-                label_source=sample.label_source,
-                collected_at=sample.collected_at,
+                html=html,
                 final_url=sample.final_url or sample.url,
-                quick_features=quick_features,
-                network_path=sample.network_path,
+                status_code=sample.status_code,
+                redirect_count=sample.redirect_count,
+                fetched=True,
             )
-        else:
-            infrastructure = collect_infrastructure_snapshot(sample.final_url or sample.url)
-            reputation = registry.lookup(sample.final_url or sample.url).asdict()
-            row = build_deep_feature_row(
-                sample_id=sample.sample_id,
-                url=sample.url,
-                label=sample.label,
-                label_source=sample.label_source,
-                collected_at=sample.collected_at,
-                final_url=sample.final_url or sample.url,
-                quick_features=quick_features,
-                infrastructure=infrastructure,
-                reputation=reputation,
-            )
+            quick_features = build_quick_feature_dict(sample.final_url or sample.url, page)
 
-        rows.append(row)
+            if sample.network_path:
+                row = build_deep_feature_row_from_snapshot(
+                    sample_id=sample.sample_id,
+                    url=sample.url,
+                    label=sample.label,
+                    label_source=sample.label_source,
+                    collected_at=sample.collected_at,
+                    final_url=sample.final_url or sample.url,
+                    quick_features=quick_features,
+                    network_path=sample.network_path,
+                )
+            else:
+                infrastructure = collect_infrastructure_snapshot(sample.final_url or sample.url)
+                reputation = registry.lookup(sample.final_url or sample.url).asdict()
+                row = build_deep_feature_row(
+                    sample_id=sample.sample_id,
+                    url=sample.url,
+                    label=sample.label,
+                    label_source=sample.label_source,
+                    collected_at=sample.collected_at,
+                    final_url=sample.final_url or sample.url,
+                    quick_features=quick_features,
+                    infrastructure=infrastructure,
+                    reputation=reputation,
+                )
 
-    write_rows(output_path, rows)
+            rows.append(row)
+            
+        except Exception as e:
+            print(f"Warning: Failed to extract deep features for {sample.url}. Error: {e}")
+            continue
+
+    if not rows:
+        raise ValueError("No valid rows were processed. Check your manifest and HTML files.")
+
+    write_rows(out_file, rows)
     return rows
 
 
@@ -89,8 +120,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    rows = build_dataset(args.manifest, args.output)
-    print(json.dumps({"rows_written": len(rows), "output_path": args.output}, indent=2))
+    try:
+        rows = build_dataset(args.manifest, args.output)
+        print(json.dumps({"rows_written": len(rows), "output_path": args.output}, indent=2))
+    except Exception as e:
+        print(str(e))
+        sys.exit(1)
 
 
 if __name__ == "__main__":
