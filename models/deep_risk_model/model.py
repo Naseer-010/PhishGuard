@@ -69,8 +69,8 @@ class DeepRiskModel:
         self.infrastructure_model = joblib.load(INFRA_MODEL_PATH) if INFRA_MODEL_PATH.exists() else None
         self.reputation_model = joblib.load(REPUTATION_MODEL_PATH) if REPUTATION_MODEL_PATH.exists() else None
         self.meta_model = joblib.load(META_MODEL_PATH) if META_MODEL_PATH.exists() else None
-        self.text_model = TfidfTextModel(TEXT_MODEL_PATH)
-        self.distilbert_model = DistilBertTextModel(DISTILBERT_MODEL_DIR)
+        self.text_model = TfidfTextModel(TEXT_MODEL_PATH) if TEXT_MODEL_PATH.exists() else None
+        self.distilbert_model = DistilBertTextModel(DISTILBERT_MODEL_DIR) if DISTILBERT_MODEL_DIR.exists() else None
         self.fusion_engine = ScoreFusionEngine(
             meta_model=self.meta_model,
             meta_feature_columns=list(DEFAULT_FUSION_META_FEATURES),
@@ -94,8 +94,12 @@ class DeepRiskModel:
             PAGE_FEATURE_COLUMNS,
             fallback=self._page_heuristic_score(deep_features, page.fetched),
         )
-        text_model_score = self.text_model.predict_score(page.visible_text) if page.visible_text else None
-        bert_model_score = self.distilbert_model.predict_score(page.visible_text) if page.visible_text else None
+        
+        # --- PROTECTED TEXT MODEL SCORES ---
+        text_model_score = self.text_model.predict_score(page.visible_text) if self.text_model and page.visible_text else None
+        bert_model_score = self.distilbert_model.predict_score(page.visible_text) if self.distilbert_model and page.visible_text else None
+        # -----------------------------------
+        
         content_risk_score = self._content_score(
             raw_page_model_score=raw_page_model_score,
             text_model_score=text_model_score,
@@ -373,7 +377,8 @@ class DeepRiskModel:
         infrastructure_risk_score: int,
     ) -> dict[str, Any]:
         explanations: dict[str, Any] = {
-            "text_terms": self.text_model.explain_text(page.visible_text, top_k=5) if page.visible_text else [],
+            # --- PROTECTED TEXT TERMS ---
+            "text_terms": self.text_model.explain_text(page.visible_text, top_k=5) if self.text_model and page.visible_text else [],
             "page_model_shap": [],
             "infra_model_shap": [],
         }

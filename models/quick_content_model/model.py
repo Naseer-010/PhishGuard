@@ -25,8 +25,11 @@ class QuickContentThreatModel:
         self.timeout = timeout
         self.model_path = Path(model_path)
         self.model = joblib.load(self.model_path) if self.model_path.exists() else None
-        self.text_model = TfidfTextModel(TEXT_MODEL_PATH)
-        self.distilbert_model = DistilBertTextModel(DISTILBERT_MODEL_DIR)
+        
+        # --- PROTECTED INITIALIZATION ---
+        self.text_model = TfidfTextModel(TEXT_MODEL_PATH) if TEXT_MODEL_PATH.exists() else None
+        self.distilbert_model = DistilBertTextModel(DISTILBERT_MODEL_DIR) if DISTILBERT_MODEL_DIR.exists() else None
+        # --------------------------------
 
     def analyze_url(self, url: str) -> dict[str, Any]:
         normalized = self._normalize_url(url)
@@ -34,7 +37,10 @@ class QuickContentThreatModel:
         threat_percentage, model_version, auxiliary_scores = self._score(features, page)
         reasons = self._reason_strings(features, page)
         risk_band = self._risk_band(threat_percentage)
-        text_explanations = self.text_model.explain_text(page.visible_text, top_k=5) if page.visible_text else []
+        
+        # --- PROTECTED TEXT EXPLANATIONS ---
+        text_explanations = self.text_model.explain_text(page.visible_text, top_k=5) if self.text_model and page.visible_text else []
+        # -----------------------------------
 
         prediction = QuickPrediction(
             url=normalized,
@@ -87,8 +93,10 @@ class QuickContentThreatModel:
             tabular_score = self._heuristic_score(features, page)
             base_version = "heuristic_fallback_v1"
 
-        text_score = self.text_model.predict_score(page.visible_text) if page.visible_text else None
-        bert_score = self.distilbert_model.predict_score(page.visible_text) if page.visible_text else None
+        # --- PROTECTED TEXT MODEL SCORES ---
+        text_score = self.text_model.predict_score(page.visible_text) if self.text_model and page.visible_text else None
+        bert_score = self.distilbert_model.predict_score(page.visible_text) if self.distilbert_model and page.visible_text else None
+        # -----------------------------------
 
         parts: list[tuple[int, float]] = [
             (tabular_score, 0.45),
