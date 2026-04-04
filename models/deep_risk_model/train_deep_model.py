@@ -20,7 +20,10 @@ from models.common.dataset_io import read_rows
 from models.common.fusion import DEFAULT_FUSION_META_FEATURES
 from models.common.model_utils import binary_metrics, fit_frame_columns, split_dataframe
 from models.common.paths import MANIFEST_DIR, PROCESSED_DIR
+from models.common.text_models import DistilBertTextModel, TfidfTextModel
 from models.datasets.build_deep_dataset import build_dataset
+from models.deep_risk_model.train_distilbert_model import MODEL_DIR as DISTILBERT_MODEL_DIR
+from models.deep_risk_model.train_text_tfidf_model import TEXT_MODEL_PATH
 from models.features.deep_features import DEEP_FEATURE_COLUMNS
 
 
@@ -50,6 +53,9 @@ URL_FEATURE_COLUMNS = [column for column in DEEP_FEATURE_COLUMNS if column.start
 
 PAGE_FEATURE_COLUMNS = [
     "title_length",
+    "redirect_chain_domain_changes",
+    "redirect_chain_suspicious",
+    "redirect_chain_risk_score",
     "text_length",
     "visible_word_count",
     "forms_count",
@@ -57,6 +63,7 @@ PAGE_FEATURE_COLUMNS = [
     "payment_fields_count",
     "hidden_inputs_count",
     "iframe_count",
+    "hidden_iframe_count",
     "external_links_count",
     "external_link_ratio",
     "resource_count",
@@ -111,6 +118,26 @@ REPUTATION_FEATURE_COLUMNS = [
 META_FEATURE_COLUMNS = list(DEFAULT_FUSION_META_FEATURES)
 
 
+def _attach_text_meta_scores(frame: pd.DataFrame, text_model, bert_model) -> pd.DataFrame:
+    result = frame.copy()
+    if "text" in result:
+        texts = result["text"].fillna("").astype(str).tolist()
+        tfidf_scores = text_model.predict_scores(texts) if text_model is not None else [None] * len(texts)
+        bert_scores = bert_model.predict_scores(texts) if bert_model is not None else [None] * len(texts)
+        result["tfidf_score"] = [0.0 if score is None else float(score) / 100.0 for score in tfidf_scores]
+        result["bert_score"] = [0.0 if score is None else float(score) / 100.0 for score in bert_scores]
+    else:
+        if "tfidf_score" in result:
+            result["tfidf_score"] = result["tfidf_score"].fillna(0.0).astype(float)
+        else:
+            result["tfidf_score"] = 0.0
+        if "bert_score" in result:
+            result["bert_score"] = result["bert_score"].fillna(0.0).astype(float)
+        else:
+            result["bert_score"] = 0.0
+    return result
+
+
 def _fit_submodel(frame: pd.DataFrame, feature_columns: list[str], model) -> object:
     x = fit_frame_columns(frame, feature_columns)
     y = frame["label"].astype(int)
@@ -134,6 +161,8 @@ def train(manifest_path: str | Path = DEFAULT_MANIFEST, dataset_path: str | Path
         raise ValueError("Need at least 20 labeled samples to train the deep model")
 
     frame = pd.DataFrame(rows)
+    text_model = TfidfTextModel(TEXT_MODEL_PATH)
+    bert_model = DistilBertTextModel(DISTILBERT_MODEL_DIR)
     train_frame, test_frame = split_dataframe(frame, label_column="label", group_column="domain_group")
     if test_frame.empty:
         raise ValueError("Need enough distinct samples to create a held-out test split")
@@ -183,24 +212,30 @@ def train(manifest_path: str | Path = DEFAULT_MANIFEST, dataset_path: str | Path
         LogisticRegression(max_iter=2000, class_weight="balanced", random_state=42),
     )
 
-    meta_train = train_frame.copy()
+    meta_train = _attach_text_meta_scores(train_frame, text_model, bert_model)
     meta_train["url_score"] = url_model.predict_proba(fit_frame_columns(meta_train, URL_FEATURE_COLUMNS))[:, 1]
     meta_train["content_score"] = page_model.predict_proba(fit_frame_columns(meta_train, PAGE_FEATURE_COLUMNS))[:, 1]
     meta_train["infra_score"] = infra_model.predict_proba(fit_frame_columns(meta_train, INFRA_FEATURE_COLUMNS))[:, 1]
     meta_train["reputation_score"] = reputation_model.predict_proba(
         fit_frame_columns(meta_train, REPUTATION_FEATURE_COLUMNS)
     )[:, 1]
+    meta_train["brand_impersonation_score"] = meta_train["brand_impersonation_score"].fillna(0.0).astype(float) / 100.0
+    meta_train["redirect_chain_risk"] = meta_train["redirect_chain_risk_score"].fillna(0.0).astype(float) / 100.0
+    meta_train["script_obfuscation_score"] = meta_train["script_obfuscation_signals"].fillna(0.0).astype(float) / 100.0
 
     meta_model = LogisticRegression(max_iter=2000, class_weight="balanced", random_state=42)
     meta_model.fit(fit_frame_columns(meta_train, META_FEATURE_COLUMNS), meta_train["label"].astype(int))
 
-    eval_frame = test_frame.copy()
+    eval_frame = _attach_text_meta_scores(test_frame, text_model, bert_model)
     eval_frame["url_score"] = url_model.predict_proba(fit_frame_columns(eval_frame, URL_FEATURE_COLUMNS))[:, 1]
     eval_frame["content_score"] = page_model.predict_proba(fit_frame_columns(eval_frame, PAGE_FEATURE_COLUMNS))[:, 1]
     eval_frame["infra_score"] = infra_model.predict_proba(fit_frame_columns(eval_frame, INFRA_FEATURE_COLUMNS))[:, 1]
     eval_frame["reputation_score"] = reputation_model.predict_proba(
         fit_frame_columns(eval_frame, REPUTATION_FEATURE_COLUMNS)
     )[:, 1]
+    eval_frame["brand_impersonation_score"] = eval_frame["brand_impersonation_score"].fillna(0.0).astype(float) / 100.0
+    eval_frame["redirect_chain_risk"] = eval_frame["redirect_chain_risk_score"].fillna(0.0).astype(float) / 100.0
+    eval_frame["script_obfuscation_score"] = eval_frame["script_obfuscation_signals"].fillna(0.0).astype(float) / 100.0
 
     y_true = eval_frame["label"].astype(int)
     y_score = meta_model.predict_proba(fit_frame_columns(eval_frame, META_FEATURE_COLUMNS))[:, 1]

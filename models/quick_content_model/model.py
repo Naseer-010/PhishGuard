@@ -118,6 +118,8 @@ class QuickContentThreatModel:
         heuristic += min(float(features["password_fields_count"]) * 10, 25)
         heuristic += min(float(features["payment_fields_count"]) * 10, 25)
         heuristic += min(float(features["external_form_actions"]) * 18, 28)
+        heuristic += min(float(features["redirect_chain_risk_score"]) * 0.6, 18)
+        heuristic += min(float(features["hidden_iframe_count"]) * 14, 20)
         heuristic += min(float(features["script_obfuscation_signals"]) * 5, 20)
         heuristic += min(float(features["threat_keyword_weight"]) * 2.4, 30)
         heuristic += min(float(features["urgency_keyword_count"]) * 1.5, 18)
@@ -150,6 +152,10 @@ class QuickContentThreatModel:
             reasons.append("Payment or card fields detected")
         if page.external_form_actions > 0:
             reasons.append("Form posts to an external host")
+        if page.redirect_chain_suspicious:
+            reasons.append("Suspicious redirect chain detected")
+        if page.hidden_iframe_count > 0:
+            reasons.append("Hidden iframe detected")
         if page.brand_impersonation_detected and page.detected_brand:
             reasons.append(f"Brand impersonation suspected for {page.detected_brand}")
         if page.script_obfuscation_signals > 0:

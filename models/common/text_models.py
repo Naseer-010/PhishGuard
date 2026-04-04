@@ -39,15 +39,21 @@ class TfidfTextModel:
         return self.pipeline is not None
 
     def predict_score(self, text: str) -> int | None:
+        scores = self.predict_scores([text])
+        return scores[0] if scores else None
+
+    def predict_scores(self, texts: list[str]) -> list[int | None]:
         if self.pipeline is None:
-            return None
-        normalized = self._normalize_text(text)
-        if normalized in self._score_cache:
-            return self._score_cache[normalized]
-        probability = float(self.pipeline.predict_proba([normalized])[0][1])
-        score = int(round(probability * 100))
-        self._score_cache[normalized] = score
-        return score
+            return [None for _ in texts]
+
+        normalized = [self._normalize_text(text) for text in texts]
+        missing = [text for text in normalized if text not in self._score_cache]
+        if missing:
+            unique_missing = list(dict.fromkeys(missing))
+            probabilities = self.pipeline.predict_proba(unique_missing)[:, 1]
+            for text, probability in zip(unique_missing, probabilities):
+                self._score_cache[text] = int(round(float(probability) * 100))
+        return [self._score_cache[text] for text in normalized]
 
     def explain_text(self, text: str, top_k: int = 5) -> list[dict[str, float | str]]:
         if self.pipeline is None:
@@ -100,6 +106,7 @@ class DistilBertTextModel:
         self._tokenizer = None
         self._model = None
         self._torch = None
+        self._device = None
         self._score_cache: dict[str, int] = {}
 
     @property
@@ -109,25 +116,33 @@ class DistilBertTextModel:
         return self._load()
 
     def predict_score(self, text: str) -> int | None:
-        if not self._load():
-            return None
-        normalized = self._normalize_text(text)
-        if normalized in self._score_cache:
-            return self._score_cache[normalized]
+        scores = self.predict_scores([text])
+        return scores[0] if scores else None
 
-        encoded = self._tokenizer(
-            normalized,
-            truncation=True,
-            padding=False,
-            max_length=self.max_length,
-            return_tensors="pt",
-        )
-        with self._torch.no_grad():
-            logits = self._model(**encoded).logits
-            probabilities = self._torch.softmax(logits, dim=-1)[0]
-        score = int(round(float(probabilities[1].item()) * 100))
-        self._score_cache[normalized] = score
-        return score
+    def predict_scores(self, texts: list[str], batch_size: int = 8) -> list[int | None]:
+        if not self._load():
+            return [None for _ in texts]
+
+        normalized = [self._normalize_text(text) for text in texts]
+        missing = [text for text in normalized if text not in self._score_cache]
+        if missing:
+            unique_missing = list(dict.fromkeys(missing))
+            for start in range(0, len(unique_missing), batch_size):
+                batch = unique_missing[start:start + batch_size]
+                encoded = self._tokenizer(
+                    batch,
+                    truncation=True,
+                    padding=True,
+                    max_length=self.max_length,
+                    return_tensors="pt",
+                )
+                encoded = {key: value.to(self._device) for key, value in encoded.items()}
+                with self._torch.no_grad():
+                    logits = self._model(**encoded).logits
+                    probabilities = self._torch.softmax(logits, dim=-1)[:, 1]
+                for text, probability in zip(batch, probabilities):
+                    self._score_cache[text] = int(round(float(probability.item()) * 100))
+        return [self._score_cache[text] for text in normalized]
 
     def _load(self) -> bool:
         if self._loaded:
@@ -143,6 +158,8 @@ class DistilBertTextModel:
         try:
             self._tokenizer = AutoTokenizer.from_pretrained(self.model_dir)
             self._model = AutoModelForSequenceClassification.from_pretrained(self.model_dir)
+            self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self._model.to(self._device)
             self._model.eval()
             self._torch = torch
             return True
@@ -150,6 +167,7 @@ class DistilBertTextModel:
             self._tokenizer = None
             self._model = None
             self._torch = None
+            self._device = None
             return False
 
     def _normalize_text(self, text: str) -> str:

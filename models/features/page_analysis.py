@@ -58,6 +58,10 @@ class PageAnalysis:
     final_url: str
     status_code: int | None
     redirect_count: int
+    redirect_chain_urls: list[str]
+    redirect_chain_domain_changes: int
+    redirect_chain_suspicious: bool
+    redirect_chain_risk_score: int
     title_text: str
     visible_text: str
     text_length: int
@@ -68,6 +72,7 @@ class PageAnalysis:
     payment_fields_count: int
     hidden_inputs_count: int
     iframe_count: int
+    hidden_iframe_count: int
     total_links_count: int
     external_links_count: int
     external_resource_count: int
@@ -126,6 +131,7 @@ def fetch_page(url: str, timeout: int = 10) -> tuple[str | None, PageAnalysis]:
             final_url=response.url,
             status_code=response.status_code,
             redirect_count=len(response.history),
+            redirect_chain_urls=[item.url for item in response.history] + [response.url],
             fetched=response.status_code < 400,
             reason=None if response.status_code < 400 else f"http_{response.status_code}",
             tls_warning=tls_warning,
@@ -145,18 +151,21 @@ def analyze_html(
     final_url: str = "",
     status_code: int | None = None,
     redirect_count: int = 0,
+    redirect_chain_urls: list[str] | None = None,
     fetched: bool = True,
     reason: str | None = None,
     tls_warning: str | None = None,
 ) -> PageAnalysis:
     resolved_final_url = final_url or url
     soup = BeautifulSoup(html, "html.parser")
+    redirect_chain = list(redirect_chain_urls or [resolved_final_url])
 
     forms = soup.find_all("form")
     password_fields = soup.find_all("input", {"type": "password"})
     hidden_inputs = soup.find_all("input", {"type": "hidden"})
     payment_fields = _payment_fields(soup)
     iframes = soup.find_all("iframe")
+    hidden_iframes = [iframe for iframe in iframes if _is_hidden_iframe(iframe)]
     anchors = soup.find_all("a", href=True)
     title_text = soup.title.get_text(" ", strip=True).lower() if soup.title else ""
 
@@ -213,6 +222,7 @@ def analyze_html(
 
     visible_text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True).lower())[:20000]
     visible_word_count = len(visible_text.split()) if visible_text else 0
+    redirect_domain_changes, redirect_chain_suspicious, redirect_chain_risk_score = _redirect_chain_risk(redirect_chain)
     brand_detection = detect_brand_impersonation(
         visible_text=visible_text,
         title_text=title_text,
@@ -226,6 +236,10 @@ def analyze_html(
         final_url=resolved_final_url,
         status_code=status_code,
         redirect_count=redirect_count,
+        redirect_chain_urls=redirect_chain,
+        redirect_chain_domain_changes=redirect_domain_changes,
+        redirect_chain_suspicious=redirect_chain_suspicious,
+        redirect_chain_risk_score=redirect_chain_risk_score,
         title_text=title_text,
         visible_text=visible_text,
         text_length=len(visible_text),
@@ -236,6 +250,7 @@ def analyze_html(
         payment_fields_count=len(payment_fields),
         hidden_inputs_count=len(hidden_inputs),
         iframe_count=len(iframes),
+        hidden_iframe_count=len(hidden_iframes),
         total_links_count=total_links_count,
         external_links_count=external_links_count,
         external_resource_count=external_resource_count,
@@ -267,6 +282,10 @@ def empty_page_analysis(url: str, reason: str) -> PageAnalysis:
         final_url=url,
         status_code=None,
         redirect_count=0,
+        redirect_chain_urls=[url],
+        redirect_chain_domain_changes=0,
+        redirect_chain_suspicious=False,
+        redirect_chain_risk_score=0,
         title_text="",
         visible_text="",
         text_length=0,
@@ -277,6 +296,7 @@ def empty_page_analysis(url: str, reason: str) -> PageAnalysis:
         payment_fields_count=0,
         hidden_inputs_count=0,
         iframe_count=0,
+        hidden_iframe_count=0,
         total_links_count=0,
         external_links_count=0,
         external_resource_count=0,
@@ -348,3 +368,28 @@ def _payment_fields(soup: BeautifulSoup) -> list[Any]:
         if any(token in joined for token in PAYMENT_FIELD_TOKENS):
             matched_fields.append(input_tag)
     return matched_fields
+
+
+def _redirect_chain_risk(redirect_chain_urls: list[str]) -> tuple[int, bool, int]:
+    hosts = [(urlparse(item).hostname or "").lower() for item in redirect_chain_urls if item]
+    unique_hosts = [host for host in hosts if host]
+    domain_changes = 0
+    for previous, current in zip(unique_hosts, unique_hosts[1:]):
+        if previous != current:
+            domain_changes += 1
+    suspicious = len(redirect_chain_urls) >= 4 or domain_changes >= 2
+    score = 0
+    score += min(max(0, len(redirect_chain_urls) - 1) * 6, 18)
+    score += min(domain_changes * 12, 36)
+    return domain_changes, suspicious, min(100, score)
+
+
+def _is_hidden_iframe(tag: Any) -> bool:
+    style = str(tag.get("style", "")).lower()
+    width = str(tag.get("width", "")).strip().lower()
+    height = str(tag.get("height", "")).strip().lower()
+    if tag.has_attr("hidden"):
+        return True
+    if "display:none" in style or "visibility:hidden" in style or "opacity:0" in style:
+        return True
+    return width in {"0", "0px"} or height in {"0", "0px"}

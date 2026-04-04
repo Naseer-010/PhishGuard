@@ -67,6 +67,33 @@ def build_deep_human_explanation(
             )
         )
 
+    if page.get("redirect_chain_suspicious"):
+        reasons.append(
+            _reason(
+                "Suspicious redirect chain detected before the final page load",
+                16,
+                "content",
+            )
+        )
+
+    if page.get("hidden_iframe_count", 0) > 0:
+        reasons.append(
+            _reason(
+                f"Hidden iframe{'s' if int(page.get('hidden_iframe_count', 0)) != 1 else ''} detected on the page",
+                14,
+                "content",
+            )
+        )
+
+    if page.get("script_obfuscation_signals", 0) > 0:
+        reasons.append(
+            _reason(
+                "Suspicious JavaScript obfuscation patterns detected",
+                15,
+                "content",
+            )
+        )
+
     if not infrastructure.get("https"):
         reasons.append(
             _reason(
@@ -130,6 +157,7 @@ def build_deep_human_explanation(
         "severity": severity,
         "reasons": ordered,
         "summary_lines": [item["message"] for item in ordered],
+        "formatted": _formatted_explanation(severity, score, ordered),
     }
 
 
@@ -149,3 +177,10 @@ def _reason(message: str, impact: int, category: str) -> dict[str, Any]:
         "impact": int(impact),
         "category": category,
     }
+
+
+def _formatted_explanation(severity: str, score: int, reasons: list[dict[str, Any]]) -> str:
+    lines = [f"Risk: {severity} ({score}%)", "", "Reasons:"]
+    for reason in reasons:
+        lines.append(f"- {reason['message']}")
+    return "\n".join(lines)

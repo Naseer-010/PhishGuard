@@ -102,6 +102,9 @@ class DeepRiskModel:
             bert_model_score=bert_model_score,
             brand_impersonation_score=page.brand_impersonation_score,
             payment_fields_count=page.payment_fields_count,
+            redirect_chain_risk_score=page.redirect_chain_risk_score,
+            hidden_iframe_count=page.hidden_iframe_count,
+            script_obfuscation_signals=page.script_obfuscation_signals,
         )
         infrastructure_risk_score = self._predict_group_score(
             self.infrastructure_model,
@@ -120,6 +123,8 @@ class DeepRiskModel:
             deep_features=deep_features,
             url_model_score=url_model_score,
             content_risk_score=content_risk_score,
+            text_model_score=text_model_score,
+            bert_model_score=bert_model_score,
             infrastructure_risk_score=infrastructure_risk_score,
             reputation_risk_score=reputation_risk_score,
         )
@@ -311,8 +316,17 @@ class DeepRiskModel:
         bert_model_score: int | None,
         brand_impersonation_score: int,
         payment_fields_count: int,
+        redirect_chain_risk_score: int,
+        hidden_iframe_count: int,
+        script_obfuscation_signals: int,
     ) -> int:
-        parts: list[tuple[int, float]] = [(raw_page_model_score, 0.45), (brand_impersonation_score, 0.10)]
+        parts: list[tuple[int, float]] = [
+            (raw_page_model_score, 0.35),
+            (brand_impersonation_score, 0.10),
+            (redirect_chain_risk_score, 0.10),
+            (min(100, hidden_iframe_count * 20), 0.05),
+            (min(100, script_obfuscation_signals * 12), 0.05),
+        ]
         if text_model_score is not None:
             parts.append((text_model_score, 0.30))
         if bert_model_score is not None:
@@ -327,6 +341,8 @@ class DeepRiskModel:
         deep_features: dict[str, float | int],
         url_model_score: int,
         content_risk_score: int,
+        text_model_score: int | None,
+        bert_model_score: int | None,
         infrastructure_risk_score: int,
         reputation_risk_score: int,
     ):
@@ -337,7 +353,12 @@ class DeepRiskModel:
             reputation_score=reputation_risk_score,
             extra_features={
                 "brand_impersonation_score": float(deep_features.get("brand_impersonation_score", 0)) / 100.0,
+                "tfidf_score": 0.0 if text_model_score is None else float(text_model_score) / 100.0,
+                "bert_score": 0.0 if bert_model_score is None else float(bert_model_score) / 100.0,
                 "domain_recent": float(deep_features.get("domain_recent", 0)),
+                "redirect_chain_risk": float(deep_features.get("redirect_chain_risk_score", 0)) / 100.0,
+                "hidden_iframe_count": float(deep_features.get("hidden_iframe_count", 0)),
+                "script_obfuscation_score": float(deep_features.get("script_obfuscation_signals", 0)) / 100.0,
                 "has_login_form": float(deep_features.get("has_login_form", 0)),
                 "has_payment_form": float(deep_features.get("has_payment_form", 0)),
             },
@@ -401,6 +422,22 @@ class DeepRiskModel:
                     "type": "content",
                     "severity": "high",
                     "indicator": "Form action posts to external domain",
+                }
+            )
+        if scraped.get("redirect_chain_suspicious"):
+            indicators.append(
+                {
+                    "type": "content",
+                    "severity": "medium",
+                    "indicator": "Suspicious redirect chain detected",
+                }
+            )
+        if scraped.get("hidden_iframe_count", 0) > 0:
+            indicators.append(
+                {
+                    "type": "content",
+                    "severity": "medium",
+                    "indicator": "Hidden iframe detected",
                 }
             )
         if scraped.get("script_obfuscation_signals", 0) > 0:

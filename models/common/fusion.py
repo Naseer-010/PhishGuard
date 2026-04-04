@@ -18,10 +18,15 @@ DEFAULT_WEIGHTED_FUSION_WEIGHTS = {
 DEFAULT_FUSION_META_FEATURES = [
     "url_score",
     "content_score",
+    "tfidf_score",
+    "bert_score",
     "infra_score",
     "reputation_score",
     "brand_impersonation_score",
     "domain_recent",
+    "redirect_chain_risk",
+    "hidden_iframe_count",
+    "script_obfuscation_score",
     "has_login_form",
     "has_payment_form",
 ]
