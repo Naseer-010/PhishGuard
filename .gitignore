@@ -26,3 +26,6 @@ dist-ssr
 # Python caches
 __pycache__/
 *.py[cod]
+
+README.md
+/data/README.md
