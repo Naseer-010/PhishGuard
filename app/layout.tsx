@@ -6,22 +6,27 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-space-grotesk" });
 
 export const metadata: Metadata = {
-  title: "PhishGuard | AI Phishing Detection",
-  description: "Real-time AI/ML-driven phishing detection and prevention platform.",
+    title: "PhishGuard | AI Phishing Detection",
+    description: "Real-time AI/ML-driven phishing detection and prevention platform.",
 };
 
+import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
+
 export default function RootLayout({
-  children,
+    children,
 }: {
-  children: React.ReactNode;
+    children: React.ReactNode;
 }) {
-  return (
-    <html lang="en" className={`${inter.variable} ${spaceGrotesk.variable}`} suppressHydrationWarning>
-      <body className="antialiased font-sans" suppressHydrationWarning>
-        <div className="fixed inset-0 -z-10 cyber-grid" />
-        <div className="absolute inset-0 -z-20 bg-black" />
-        {children}
-      </body>
-    </html>
-  );
+    return (
+        <html lang="en" className={`${inter.variable} ${spaceGrotesk.variable}`} suppressHydrationWarning>
+            <body className="antialiased font-sans" suppressHydrationWarning>
+                <div className="fixed inset-0 -z-10 cyber-grid" />
+                <div className="absolute inset-0 -z-20 bg-black" />
+                <Navbar />
+                {children}
+                <Footer />
+            </body>
+        </html>
+    );
 }
