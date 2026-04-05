@@ -10,8 +10,10 @@ Feature convention:
 from __future__ import annotations
 
 import ipaddress
+import math
 import re
 import socket
+from collections import Counter
 from urllib.parse import urlparse
 
 import tldextract
@@ -83,7 +85,8 @@ FEATURE_COLUMNS = [
     "SubDomains",
     "HTTPS",
     "DomainRegLen",
-    "Favicon",
+    "EntropyHigh",
+    "FuzzyBrand",
     "NonStdPort",
     "HTTPSDomainURL",
     "RequestURL",
@@ -136,6 +139,59 @@ def _hostname_is_ip(hostname: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def calculate_shannon_entropy(data: str) -> float:
+    """Calculate the Shannon entropy of a string (higher = more random/DGA-like)."""
+    if not data:
+        return 0.0
+    entropy = 0.0
+    length = len(data)
+    counts = Counter(data)
+    for count in counts.values():
+        p = count / length
+        entropy -= p * math.log2(p)
+    return entropy
+
+
+def fuzzy_brand_proximity(domain: str, brands: list[str]) -> bool:
+    """Detect typosquatting or lookalike domains (e.g. paypa1, g00gle)."""
+    if not domain:
+        return False
+    
+    # Split domain into segments (dots, hyphens)
+    segments = re.split(r'[\.\-]', domain.lower())
+    
+    for brand in brands:
+        brand = brand.lower()
+        for seg in segments:
+            if not seg or seg == "com" or seg == "net" or seg == "org" or seg == "www":
+                continue
+                
+            if brand == seg:
+                continue # Direct match is handled separately in model.py logic
+                
+            # 1. Length check for current segment
+            if abs(len(brand) - len(seg)) > 2:
+                continue
+                
+            # 2. Simple character match
+            matches = 0
+            min_len = min(len(brand), len(seg))
+            for i in range(min_len):
+                if brand[i] == seg[i]:
+                    matches += 1
+            if matches >= min_len * 0.7:
+                return True
+                
+            # 3. Character counts
+            c1, c2 = Counter(brand), Counter(seg)
+            intersection = c1 & c2
+            common_count = sum(intersection.values())
+            if common_count >= len(brand) * 0.8:
+                return True
+                
+    return False
 
 
 def _using_ip(ctx: URLContext) -> int:
@@ -200,6 +256,17 @@ def _domain_reg_length(ctx: URLContext) -> int:
     if ctx.suffix in {"com", "org", "net", "edu", "gov", "mil"}:
         return 1
     return 0
+
+
+def _entropy_high(ctx: URLContext) -> int:
+    entropy = calculate_shannon_entropy(ctx.domain)
+    return -1 if entropy > 3.8 else 1
+
+
+def _fuzzy_brand(ctx: URLContext) -> int:
+    from models.deep_risk_model.model import GLOBAL_TRUST_LIST_SIMPLE
+    is_fuzzy = fuzzy_brand_proximity(ctx.domain, GLOBAL_TRUST_LIST_SIMPLE)
+    return -1 if is_fuzzy else 1
 
 
 def _favicon(ctx: URLContext) -> int:
@@ -371,7 +438,8 @@ def extract_features(url: str) -> list[int]:
         _subdomains(ctx),
         _https_state(ctx),
         _domain_reg_length(ctx),
-        _favicon(ctx),
+        _entropy_high(ctx),
+        _fuzzy_brand(ctx),
         _non_std_port(ctx),
         _https_domain_url(ctx),
         _request_url(ctx),

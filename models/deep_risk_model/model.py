@@ -9,6 +9,9 @@ from urllib.parse import urlparse
 
 import joblib
 import numpy as np
+import re
+from typing import Any
+from urllib.parse import urlparse
 
 from models.common.fusion import DEFAULT_FUSION_META_FEATURES, ScoreFusionEngine
 from models.common.human_explanations import build_deep_human_explanation
@@ -56,6 +59,14 @@ class DeepRiskReport:
     criteria: dict[str, Any]
     threat_indicators: list[dict[str, str]]
     model_version: str
+
+
+GLOBAL_TRUST_LIST_SIMPLE = [
+    "google", "microsoft", "amazon", "apple", "netflix", 
+    "github", "facebook", "linkedin", "twitter", "instagram",
+    "paypal", "stripe", "bankofamerica", "chase", "wellsfargo",
+    "adobe", "zoom", "slack", "discord", "spotify"
+]
 
 
 class DeepRiskModel:
@@ -213,6 +224,138 @@ class DeepRiskModel:
             raise ValueError("Invalid URL")
         return value
 
+    def analyze_url_phish_shield_ai(self, url: str) -> dict[str, Any]:
+        """Strict Validator PhishShield AI (Single-URL, Forensic JSON Schema)."""
+        input_raw = url.strip()
+        
+        # 1. STRICT INPUT VALIDATION
+        # Detect multiple URLs
+        url_count = len(re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', input_raw))
+        if url_count > 1:
+            return self._invalid_input_response(input_raw, "Multiple URLs detected in a single analysis request.")
+            
+        # Detect purely random/noisy text (must have at least one dot to be a valid target)
+        if "." not in input_raw or " " in input_raw:
+            return self._invalid_input_response(input_raw, "Input does not resemble a valid URL or host domain (dot required).")
+
+        # Normalize Bare Domains
+        normalized = input_raw
+        if not normalized.startswith(("http://", "https://")):
+            normalized = f"http://{normalized}"
+            
+        try:
+            parsed = urlparse(normalized)
+            if not parsed.hostname:
+                return self._invalid_input_response(input_raw, "Malformed URL: Incomplete host/domain structure.")
+        except Exception:
+            return self._invalid_input_response(input_raw, "Malformed URL: Unparseable input.")
+
+        # 2. FORENSIC FEATURE EXTRACTION
+        from models.deep_risk_model.url_feature_extractor import (
+            get_feature_details, calculate_shannon_entropy, fuzzy_brand_proximity
+        )
+        feature_details = get_feature_details(normalized)
+        rule_score = self._feature_heuristic_score(feature_details)
+        
+        # 3. NEURAL CRITERIA REASONING
+        domain = (parsed.hostname or "").lower()
+        path = parsed.path.lower()
+        query = parsed.query.lower()
+        
+        subdomains = domain.split(".")
+        root_domain = ".".join(subdomains[-2:]) if len(subdomains) >= 2 else domain
+        domain_entropy = calculate_shannon_entropy(domain)
+        is_fuzzy_match = fuzzy_brand_proximity(root_domain, GLOBAL_TRUST_LIST_SIMPLE)
+
+        ai_score = 0
+        ai_reasons = []
+
+        # Root Domain Trust
+        if root_domain in GLOBAL_TRUST_LIST_SIMPLE or any(b == root_domain.split(".")[0] for b in GLOBAL_TRUST_LIST_SIMPLE):
+            ai_score -= 30
+        elif is_fuzzy_match:
+            ai_score += 65
+            ai_reasons.append(f"Root domain '{root_domain}' fuzzy-matches a trusted institution (Typosquatting suspected).")
+
+        # Structural Deception
+        deceptive_keywords = ["paypal", "google", "secure", "bank", "verify", "auth", "login", "signin"]
+        if any(any(k in s for k in deceptive_keywords) for s in subdomains[:-2]):
+            ai_score += 35
+            ai_reasons.append("Structural deception: brand keywords placed in subdomain segments.")
+
+        # Brand Impersonation
+        brands = ["google", "paypal", "amazon", "netflix", "microsoft", "apple", "bank", "secure", "billing", "support", "signin"]
+        for brand in brands:
+            if brand in domain and brand not in root_domain:
+                ai_score += 40
+                ai_reasons.append(f"High-confidence brand impersonation: '{brand}' keyword misused.")
+
+        # Lexical Abnormality
+        if domain_entropy > 3.8:
+            ai_score += 45
+            ai_reasons.append(f"Lexical abnormality: High entropy ({domain_entropy:.2f}) indicates machine-generated DGA domain.")
+        elif re.search(r"[0-9\-]{4,}", domain) or len(domain) > 30:
+            ai_score += 20
+            ai_reasons.append("Lexical abnormality: Unnatural domain naming pattern.")
+
+        # Security & Intent
+        if normalized.startswith("http://"):
+            ai_score += 25
+            ai_reasons.append("Security vulnerability: Insecure protocol (HTTP) identified.")
+        if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", domain):
+            ai_score += 45
+            ai_reasons.append("Security vulnerability: Host uses raw IP address.")
+
+        intent = ["login", "verify", "secure", "account", "billing", "password", "reset", "claim", "reward", "wallet", "invoice"]
+        if any(k in path or k in query for k in intent):
+            ai_score += 25
+            ai_reasons.append("Endpoint intent: Detects sensitive user action (authentication/billing/claims).")
+
+        lures = ["free", "winner", "urgent", "unlock", "recovery", "limit", "bonus", "gift"]
+        if any(l in normalized.lower() for l in lures):
+            ai_score += 30
+            ai_reasons.append("Social engineering: Lure-based components or urgency markers detected.")
+
+        # --- HYBRID FUSION (70/30) ---
+        ai_score = max(0, min(100, ai_score))
+        final_score = int(round((rule_score * 0.7) + (ai_score * 0.3)))
+        final_score = max(0, min(100, final_score))
+
+        # CLASSIFICATION & CONFIDENCE
+        if final_score <= 24:
+            classification = "LOW RISK"
+            confidence = "HIGH"
+        elif final_score <= 59:
+            classification = "MEDIUM RISK"
+            confidence = "MEDIUM"
+        else:
+            classification = "HIGH RISK"
+            confidence = "HIGH"
+
+        return {
+            "input": input_raw,
+            "normalized_url": normalized,
+            "valid": True,
+            "risk_score": final_score,
+            "classification": classification,
+            "confidence": confidence,
+            "reasons": list(set(ai_reasons + [d["name"] for d in feature_details if d["status"] == "danger"])),
+            "summary": f"{classification} detected: Strict forensic evaluation suggests {final_score}% deception probability."
+        }
+
+    def _invalid_input_response(self, input_raw: str, reason: str) -> dict[str, Any]:
+        """Standardized response for malformed or invalid inputs."""
+        return {
+            "input": input_raw,
+            "normalized_url": None,
+            "valid": False,
+            "risk_score": None,
+            "classification": "INVALID INPUT",
+            "confidence": "LOW",
+            "reasons": [reason],
+            "summary": "Analysis aborted: The provided input is malformed or not a single valid URL."
+        }
+
     def _predict_url_score(self, normalized_url: str, deep_features: dict[str, float | int]) -> int:
         if self.stacked_url_model is not None:
             return self._predict_group_score(
@@ -247,6 +390,9 @@ class DeepRiskModel:
             "HTTPSDomainURL",
             "NonStdPort",
             "StatsReport",
+            "DomainRegLen",
+            "EntropyHigh",
+            "FuzzyBrand",
         }
         score = 0
         for detail in feature_details:
@@ -281,27 +427,27 @@ class DeepRiskModel:
     def _infrastructure_heuristic_score(self, features: dict[str, float | int]) -> int:
         score = 0.0
         if float(features["is_https"]) == 0:
-            score += 12
+            score += 25  # Increased from 12
         if float(features["whois_available"]) == 0:
-            score += 4
+            score += 8   # Increased from 4
         if float(features["domain_recent"]) > 0:
-            score += 18
+            score += 30  # Increased from 18
         if float(features["host_is_ip"]) > 0 or float(features["uses_ip_host"]) > 0:
-            score += 24
+            score += 40  # Increased from 24
         if float(features["has_punycode"]) > 0 or float(features["punycode_domain"]) > 0:
-            score += 15
+            score += 20  # Increased from 15
         if float(features["suspicious_tld_infra"]) > 0 or float(features["suspicious_tld"]) > 0:
-            score += 15
+            score += 25  # Increased from 15
         if float(features["dns_resolves"]) == 0:
-            score += 16
+            score += 20  # Increased from 16
         if float(features["resolved_ip_count"]) == 0:
-            score += 6
+            score += 10  # Increased from 6
         if float(features["non_standard_port"]) > 0:
-            score += 8
+            score += 12  # Increased from 8
         if float(features["tls_checked"]) > 0 and float(features["tls_valid"]) == 0:
-            score += 20
+            score += 30  # Increased from 20
         if float(features["tls_expiring_soon"]) > 0:
-            score += 6
+            score += 10  # Increased from 6
         return int(round(max(0, min(100, score))))
 
     def _reputation_heuristic_score(self, features: dict[str, float | int]) -> int:
@@ -513,9 +659,9 @@ class DeepRiskModel:
         return int(round(total / total_weight))
 
     def _verdict(self, score: int) -> str:
-        if score <= 29:
+        if score <= 39:
             return "Safe"
-        if score <= 59:
+        if score <= 74:
             return "Suspicious"
         return "Dangerous"
 

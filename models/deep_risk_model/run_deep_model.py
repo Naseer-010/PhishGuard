@@ -21,7 +21,7 @@ def main() -> None:
     args = parser.parse_args()
 
     model = DeepRiskModel(timeout=args.timeout)
-    report = model.analyze_url(args.url)
+    report = model.analyze_url_phish_shield_ai(args.url)
     print(json.dumps(report, indent=2))
 
 
