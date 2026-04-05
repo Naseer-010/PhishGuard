@@ -1,21 +1,31 @@
+# Next.js
+.next/
+out/
+build/
+
+# Production
+/.next/
+/out/
+
+# Env
+.env*
+!.env.example
+
 # Logs
 logs
 *.log
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# Dependencies
+node_modules/
+/node_modules/
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# Editor
+.vscode/
+.idea/
 .DS_Store
 *.suo
 *.ntvs*
@@ -23,12 +33,16 @@ dist-ssr
 *.sln
 *.sw?
 
+# Caches
+.eslintcache
+.stylelintcache
 
-# Python caches
+# Python
 __pycache__/
 *.py[cod]
+venv/
+.venv/
 
-venv
+# App Specific
 data/raw/html
-models/deep_risk_model/artifacts
-models/quick_content_model/artifacts
+models/*/artifacts
