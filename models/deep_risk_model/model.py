@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 import joblib
 import numpy as np
+import pandas as pd
 import re
 from typing import Any
 from urllib.parse import urlparse
