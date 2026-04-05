@@ -4,8 +4,14 @@
   "dynamicRoutes": {},
   "notFoundRoutes": [],
   "preview": {
+<<<<<<< HEAD
     "previewModeId": "bbd2fe0b83ce12a5446ecb4914f9ccf4",
     "previewModeSigningKey": "02c09dcf01f7db068bae1db8c44b62278bf1e60c8a9e821539339b7418019bc9",
     "previewModeEncryptionKey": "60757a9d3a85689da5cffb89214d4abf45e744949691db58caf8472450f23df7"
+=======
+    "previewModeId": "6a5ef4b3af7421ca7efb49d0ceba329a",
+    "previewModeSigningKey": "6dea6b909951da230335690d44aaa29d9865fb21e70c4c28981701525b109158",
+    "previewModeEncryptionKey": "278d1bf5048b049fb398d826aa29b9dbd24dad37b36e890888fb4e3bd925f10a"
+>>>>>>> b851a4e (My changes - Chrome extension)
   }
 }

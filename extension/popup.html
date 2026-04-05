@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhishGuard</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="pg-popup">
+    <header>
+      <div class="pg-logo">PhishGuard</div>
+      <div class="pg-status-indicator" id="status-dot"></div>
+    </header>
+
+    <main id="main-content">
+      <div class="pg-scan-info">
+        <h3>Current Site Status</h3>
+        <p class="pg-url-text" id="current-url">Detecting...</p>
+      </div>
+
+      <div class="pg-result-card" id="result-card">
+        <div class="pg-risk-level">
+          <span id="risk-label">Unknown</span>
+          <div class="pg-score-bar-bg">
+            <div class="pg-score-bar-fill" id="risk-score-fill"></div>
+          </div>
+        </div>
+        
+        <div class="pg-summary">
+          <h4>Analysis Summary</h4>
+          <p id="analysis-summary">Loading real-time protection data...</p>
+        </div>
+      </div>
+
+      <div class="pg-stats">
+        <div class="pg-stat-item">
+          <span class="pg-stat-val" id="stat-confidence">-%</span>
+          <span class="pg-stat-label">Confidence</span>
+        </div>
+        <div class="pg-divider"></div>
+        <div class="pg-stat-item">
+          <span class="pg-stat-val" id="stat-scans">Auto</span>
+          <span class="pg-stat-label">Protection</span>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <p>System Online & Active</p>
+      <div class="pg-version">v1.0.0</div>
+    </footer>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

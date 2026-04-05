@@ -1,4 +1,4 @@
-// File: D:\DIVY\webDev\Projects\PhishGuard\app\layout.tsx
+// File: C:\Chrome exten Phishing\PhishGuard\app\layout.tsx
 import * as entry from '../../../app/layout.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

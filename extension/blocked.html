@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PhishGuard - Connection Blocked</title>
+    <style>
+        body {
+            margin: 0;
+            background: #0f0f10;
+            color: white;
+            font-family: 'Inter', system-ui, sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            text-align: center;
+        }
+
+        .container {
+            max-width: 600px;
+            padding: 40px;
+            background: rgba(255, 77, 77, 0.05);
+            border: 1px solid rgba(255, 77, 77, 0.2);
+            border-radius: 32px;
+            backdrop-filter: blur(20px);
+        }
+
+        h1 {
+            color: #ff4d4d;
+            font-size: 32px;
+            margin-bottom: 16px;
+        }
+
+        p {
+            color: #a0a0a5;
+            line-height: 1.6;
+            margin-bottom: 32px;
+        }
+
+        .danger-icon {
+            font-size: 80px;
+            margin-bottom: 24px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.05);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        .btn {
+            background: #ff4d4d;
+            color: white;
+            padding: 16px 32px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 700;
+            transition: 0.3s;
+            display: inline-block;
+        }
+
+        .btn:hover {
+            background: #ff3333;
+            transform: translateY(-2px);
+        }
+
+        .footer {
+            margin-top: 40px;
+            font-size: 12px;
+            color: #555;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="danger-icon">🛡️</div>
+        <h1>PhishGuard: Threat Intercepted</h1>
+        <p>PhishGuard Hardened Mode has blocked this connection. The website you were trying to visit was identified as
+            a high-risk security threat.</p>
+        <a href="https://www.google.com" class="btn">Return to Safety</a>
+        <div class="footer">POWERED BY PHISHGUARD PRE-NAVIGATION ENGINE v1.0.0</div>
+    </div>
+</body>
+
+</html>
