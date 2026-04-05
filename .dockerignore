@@ -1,0 +1,8 @@
+extension/
+node_modules/
+.next/
+debug_output.json
+debug_stdout.json
+test_*.txt
+*.pyc
+__pycache__/
