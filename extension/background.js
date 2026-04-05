@@ -1,4 +1,4 @@
-const API_URL = 'http://localhost:3000/api/analyze';
+const API_URL = 'https://phishguard-zv13.onrender.com/api/analyze';
 const SCAN_TIMEOUT = 5000; // 5 seconds
 const cache = new Map();
 const pendingAnalyze = new Map();
