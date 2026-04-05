@@ -49,7 +49,8 @@ function updateUI(url, result) {
         riskLabelEl.textContent = label;
         riskScoreFillEl.style.width = `${riskScore}%`;
         summaryEl.textContent = result.summary || result.reasoning?.[0] || 'Site appears safe to use.';
-        confidenceEl.textContent = result.confidence ? `${(result.confidence * 100).toFixed(0)}%` : `${(100 - riskScore).toFixed(0)}%`;
+        const riskScoreValue = typeof result.risk_score === 'number' ? result.risk_score : 0;
+        confidenceEl.textContent = `${(riskScoreValue * 100).toFixed(0)}%`;
 
         // Visual styles based on risk
         if (label === 'HIGH RISK' || riskScore > 70) {

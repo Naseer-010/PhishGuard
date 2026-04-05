@@ -225,18 +225,18 @@ class DeepRiskModel:
         return value
 
     def analyze_url_phish_shield_ai(self, url: str) -> dict[str, Any]:
-        """Strict Validator PhishShield AI (Single-URL, Forensic JSON Schema)."""
+        """PhishGuard Extension AI: Strict 8-Dimension forensic engine (Single-URL, Extension Action Schema)."""
         input_raw = url.strip()
         
         # 1. STRICT INPUT VALIDATION
         # Detect multiple URLs
         url_count = len(re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', input_raw))
         if url_count > 1:
-            return self._invalid_input_response(input_raw, "Multiple URLs detected in a single analysis request.")
+            return self._invalid_input_response(input_raw, "Multiple URLs detected. Analysis requires a single target.")
             
-        # Detect purely random/noisy text (must have at least one dot to be a valid target)
+        # Detect random/noisy text (must have at least one dot to be a valid domain-like target)
         if "." not in input_raw or " " in input_raw:
-            return self._invalid_input_response(input_raw, "Input does not resemble a valid URL or host domain (dot required).")
+            return self._invalid_input_response(input_raw, "Input does not resemble a valid URL or host domain.")
 
         # Normalize Bare Domains
         normalized = input_raw
@@ -246,91 +246,156 @@ class DeepRiskModel:
         try:
             parsed = urlparse(normalized)
             if not parsed.hostname:
-                return self._invalid_input_response(input_raw, "Malformed URL: Incomplete host/domain structure.")
+                return self._invalid_input_response(input_raw, "Malformed URL: Incomplete domain structure.")
         except Exception:
             return self._invalid_input_response(input_raw, "Malformed URL: Unparseable input.")
 
-        # 2. FORENSIC FEATURE EXTRACTION
+        # 2. BROWSER SECURITY ANALYSIS FRAMEWORK (8 Dimensions)
         from models.deep_risk_model.url_feature_extractor import (
             get_feature_details, calculate_shannon_entropy, fuzzy_brand_proximity
         )
         feature_details = get_feature_details(normalized)
         rule_score = self._feature_heuristic_score(feature_details)
         
-        # 3. NEURAL CRITERIA REASONING
         domain = (parsed.hostname or "").lower()
         path = parsed.path.lower()
         query = parsed.query.lower()
-        
         subdomains = domain.split(".")
         root_domain = ".".join(subdomains[-2:]) if len(subdomains) >= 2 else domain
         domain_entropy = calculate_shannon_entropy(domain)
-        is_fuzzy_match = fuzzy_brand_proximity(root_domain, GLOBAL_TRUST_LIST_SIMPLE)
-
+        
         ai_score = 0
         ai_reasons = []
 
-        # Root Domain Trust
-        if root_domain in GLOBAL_TRUST_LIST_SIMPLE or any(b == root_domain.split(".")[0] for b in GLOBAL_TRUST_LIST_SIMPLE):
-            ai_score -= 30
-        elif is_fuzzy_match:
-            ai_score += 65
-            ai_reasons.append(f"Root domain '{root_domain}' fuzzy-matches a trusted institution (Typosquatting suspected).")
-
-        # Structural Deception
-        deceptive_keywords = ["paypal", "google", "secure", "bank", "verify", "auth", "login", "signin"]
-        if any(any(k in s for k in deceptive_keywords) for s in subdomains[:-2]):
-            ai_score += 35
-            ai_reasons.append("Structural deception: brand keywords placed in subdomain segments.")
-
-        # Brand Impersonation
-        brands = ["google", "paypal", "amazon", "netflix", "microsoft", "apple", "bank", "secure", "billing", "support", "signin"]
+        # List of critical phishing/scam/financial words
+        scam_bait_words = ["free", "giftcard", "winner", "claim", "prize", "bonus", "reward"]
+        financial_security_words = [
+            "bank", "billing", "payment", "wallet", "verify", "login", "secure", "account", 
+            "password", "update", "authentication", "confirm", "reset", "invoice", "auth", "signin"
+        ]
+        phishing_lures = ["alert", "support", "urgent", "unlock", "recovery", "limit"]
+        
+        all_suspicious_words = scam_bait_words + financial_security_words + phishing_lures
+        
+        # 1. ROOT DOMAIN TRUST (Whitelisting check)
+        is_trusted = root_domain in GLOBAL_TRUST_LIST_SIMPLE or any(b == root_domain.split(".")[0] for b in GLOBAL_TRUST_LIST_SIMPLE)
+        if is_trusted:
+            ai_score -= 50
+        
+        # 2. BRAND IMPERSONATION
+        brands = GLOBAL_TRUST_LIST_SIMPLE + ["amazon", "netflix", "chase", "americanexpress", "wellsfargo", "bankofamerica", "support", "signin", "auth"]
+        is_brand_impersonation = False
         for brand in brands:
             if brand in domain and brand not in root_domain:
-                ai_score += 40
-                ai_reasons.append(f"High-confidence brand impersonation: '{brand}' keyword misused.")
+                ai_score += 45
+                ai_reasons.append(f"Brand impersonation detected: Institutional keyword '{brand}' misused in subdomains.")
+                is_brand_impersonation = True
 
-        # Lexical Abnormality
+        # 3. SCAM / PHISHING WORDING
+        found_suspicious_words = [w for w in all_suspicious_words if w in normalized.lower()]
+        if found_suspicious_words:
+            word_penalty = len(found_suspicious_words) * 15
+            ai_score += min(60, word_penalty)
+            ai_reasons.append(f"Suspicious intent detected: URL contains high-risk keywords ({', '.join(found_suspicious_words[:3])}).")
+
+        # 4. STRUCTURAL DECEPTION
+        if any(any(k in s for k in all_suspicious_words) for s in subdomains[:-2]):
+            ai_score += 35
+            ai_reasons.append("Structural deception: Brand or trust keywords identified in deceptive subdomain segments.")
+
+        # 5. LEXICAL ABNORMALITY
         if domain_entropy > 3.8:
-            ai_score += 45
-            ai_reasons.append(f"Lexical abnormality: High entropy ({domain_entropy:.2f}) indicates machine-generated DGA domain.")
-        elif re.search(r"[0-9\-]{4,}", domain) or len(domain) > 30:
+            ai_score += 40
+            ai_reasons.append(f"Lexical abnormality: High entropy ({domain_entropy:.2f}) suggests DGA/machine-generated domain.")
+        elif re.search(r"[0-9\-]{4,}", domain) or len(domain) > 35:
             ai_score += 20
-            ai_reasons.append("Lexical abnormality: Unnatural domain naming pattern.")
+            ai_reasons.append("Lexical abnormality: Unnatural domain length or hyphenation patterns.")
 
-        # Security & Intent
+        # 6. SECURITY SIGNALS
         if normalized.startswith("http://"):
             ai_score += 25
-            ai_reasons.append("Security vulnerability: Insecure protocol (HTTP) identified.")
-        if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", domain):
-            ai_score += 45
-            ai_reasons.append("Security vulnerability: Host uses raw IP address.")
+            ai_reasons.append("Security signal: Insecure protocol (HTTP) identified.")
+        if bool(re.match(r"^\d{1,3}(\.\d{1,3}){3}$", domain)):
+            ai_score += 50
+            ai_reasons.append("Security signal: Host uses raw IP address instead of registered domain.")
 
-        intent = ["login", "verify", "secure", "account", "billing", "password", "reset", "claim", "reward", "wallet", "invoice"]
-        if any(k in path or k in query for k in intent):
-            ai_score += 25
-            ai_reasons.append("Endpoint intent: Detects sensitive user action (authentication/billing/claims).")
-
-        lures = ["free", "winner", "urgent", "unlock", "recovery", "limit", "bonus", "gift"]
-        if any(l in normalized.lower() for l in lures):
+        # 7. PATH / ENDPOINT INTENT
+        intent_matches = [w for w in ["login", "verify", "account", "update", "reset", "claim", "winner", "payment", "invoice", "wallet", "support", "auth", "signin"] if w in path or w in query]
+        if intent_matches:
             ai_score += 30
-            ai_reasons.append("Social engineering: Lure-based components or urgency markers detected.")
+            ai_reasons.append(f"Endpoint intent: Path structure targets sensitive user actions ({', '.join(intent_matches[:2])}).")
 
-        # --- HYBRID FUSION (70/30) ---
+        # 8. SOCIAL ENGINEERING INTENT
+        is_scam_bait = any(w in normalized.lower() for w in scam_bait_words)
+        is_financial = any(w in normalized.lower() for w in financial_security_words)
+        if is_scam_bait:
+            ai_score += 30
+            ai_reasons.append("Social engineering: Lure-based components (gift/reward/prize) identified.")
+
+        # --- NON-NEGOTIABLE SAFETY RULES (Override Engine) ---
         ai_score = max(0, min(100, ai_score))
-        final_score = int(round((rule_score * 0.7) + (ai_score * 0.3)))
+        
+        # FUSION LOGIC (60% Neural, 40% Rules for conservative bias)
+        final_score = int(round((rule_score * 0.4) + (ai_score * 0.6)))
+        
+        # Apply Rule 1: No LOW RISK for scam bait + unknown domain
+        if is_scam_bait and not is_trusted:
+            final_score = max(final_score, 25)
+            if ai_score > 50: final_score = max(final_score, 75) # Usually HIGH
+            
+        # Apply Rule 2: No LOW RISK for financial/security + suspicious domain
+        if is_financial and not is_trusted:
+            final_score = max(final_score, 25)
+
+        # Apply Rule 3: Brand name in URL but not root domain -> MEDIUM/HIGH
+        if is_brand_impersonation:
+            final_score = max(final_score, 35)
+            if is_financial or is_scam_bait: final_score = max(final_score, 80)
+
+        # Apply Rule 4: IP-based Credential Trap -> HIGH
+        is_ip_host = bool(re.match(r"^\d{1,3}(\.\d{1,3}){3}$", domain))
+        is_ip_credential_trap = is_ip_host and (is_financial or "auth" in normalized.lower())
+        if is_ip_credential_trap:
+            final_score = max(final_score, 90)
+
+        # Apply Rule 5: Multi-Signal Sharp Increase
+        if len(found_suspicious_words) >= 3 or (is_brand_impersonation and normalized.startswith("http://")):
+            final_score = max(final_score, 70)
+
         final_score = max(0, min(100, final_score))
 
-        # CLASSIFICATION & CONFIDENCE
+        # --- CLASSIFICATION & EXTENSION DECISION ENGINE ---
         if final_score <= 24:
             classification = "LOW RISK"
-            confidence = "HIGH"
+            confidence = 0.95 if is_trusted else 0.75
+            extension_action = "ALLOW"
+            hover_label = "SAFE"
+            badge_status = "OK"
+            overlay_recommended = False
+            redirect_to_warning_page = False
         elif final_score <= 59:
             classification = "MEDIUM RISK"
-            confidence = "MEDIUM"
+            confidence = 0.75
+            extension_action = "WARN"
+            hover_label = "RISKY"
+            badge_status = "MED"
+            overlay_recommended = True if final_score > 40 else False
+            redirect_to_warning_page = True
         else:
             classification = "HIGH RISK"
-            confidence = "HIGH"
+            confidence = 0.95
+            
+            # Aggressive blocking for clear traps/scams (Rule-based escalation)
+            is_clear_trap = is_brand_impersonation or is_ip_credential_trap or is_scam_bait or len(found_suspicious_words) >= 3
+            if final_score >= 85 or (final_score >= 70 and is_clear_trap):
+                extension_action = "BLOCK"
+            else:
+                extension_action = "WARN"
+
+            hover_label = "RISKY"
+            badge_status = "RISK"
+            overlay_recommended = True
+            redirect_to_warning_page = True
 
         return {
             "input": input_raw,
@@ -339,8 +404,13 @@ class DeepRiskModel:
             "risk_score": final_score,
             "classification": classification,
             "confidence": confidence,
+            "extension_action": extension_action,
+            "hover_label": hover_label,
+            "badge_status": badge_status,
+            "overlay_recommended": overlay_recommended,
+            "redirect_to_warning_page": redirect_to_warning_page,
             "reasons": list(set(ai_reasons + [d["name"] for d in feature_details if d["status"] == "danger"])),
-            "summary": f"{classification} detected: Strict forensic evaluation suggests {final_score}% deception probability."
+            "summary": f"{classification} detected: Strict extension logic recommends {extension_action} state."
         }
 
     def _invalid_input_response(self, input_raw: str, reason: str) -> dict[str, Any]:
@@ -351,7 +421,7 @@ class DeepRiskModel:
             "valid": False,
             "risk_score": None,
             "classification": "INVALID INPUT",
-            "confidence": "LOW",
+            "confidence": 0.0,
             "reasons": [reason],
             "summary": "Analysis aborted: The provided input is malformed or not a single valid URL."
         }
